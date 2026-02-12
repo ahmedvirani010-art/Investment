@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Stock {
+  id        String   @id @default(cuid())
+  ticker    String   @unique
+  name      String
+  sector    String
+  marketCap String?
+  lastPrice Float?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions  Transaction[]
+  userStocks    UserStock[]
+  researchNotes ResearchNote[]
+  stockTags     StockTag[]
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  stockId   String
+  type      String
+  date      DateTime
+  quantity  Float
+  price     Float
+  amount    Float
+  fees      Float    @default(0)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@index([stockId])
+  @@index([date])
+}
+
+model UserStock {
+  id             String   @id @default(cuid())
+  stockId        String   @unique
+  totalQuantity  Float    @default(0)
+  averageCost    Float    @default(0)
+  totalInvested  Float    @default(0)
+  realizedGain   Float    @default(0)
+  totalDividends Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  stock Stock @relation(fields: [stockId], references: [id])
+}
+
+model ResearchNote {
+  id        String   @id @default(cuid())
+  stockId   String?
+  title     String
+  content   String
+  plainText String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stock    Stock?    @relation(fields: [stockId], references: [id])
+  noteTags NoteTag[]
+
+  @@index([stockId])
+}
+
+model MonthlyReview {
+  id         String   @id @default(cuid())
+  year       Int
+  month      Int
+  commentary String?
+  status     String   @default("DRAFT")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([year, month])
+}
+
+model QuarterlyReview {
+  id         String   @id @default(cuid())
+  year       Int
+  quarter    Int
+  commentary String?
+  status     String   @default("DRAFT")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([year, quarter])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String?
+  createdAt DateTime @default(now())
+
+  stockTags StockTag[]
+  noteTags  NoteTag[]
+}
+
+model StockTag {
+  id      String @id @default(cuid())
+  stockId String
+  tagId   String
+
+  stock Stock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([stockId, tagId])
+}
+
+model NoteTag {
+  id     String @id @default(cuid())
+  noteId String
+  tagId  String
+
+  note ResearchNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  tag  Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, tagId])
+}
