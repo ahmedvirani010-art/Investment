@@ -11,7 +11,7 @@ from datetime import datetime
 import logging
 from collections import defaultdict
 
-from psx_announcement_scraper import PSXAnnouncementScraper
+from psx_announcement_scraper_v2 import PSXAnnouncementScraperV2, RawAnnouncement
 from psx_announcement_classifier import AnnouncementClassifier
 from psx_announcement_storage import AnnouncementStorage
 
@@ -73,16 +73,21 @@ def main():
 
     # Initialize components
     logger.info("Initializing components...")
-    scraper = PSXAnnouncementScraper(delay_seconds=2.0)
+    scraper = PSXAnnouncementScraperV2(delay_seconds=2.0)
     classifier = AnnouncementClassifier()
     storage = AnnouncementStorage(db_path=args.db_path)
 
     # Step 1: Scrape announcements
     print("📥 STEP 1: Scraping announcements from PSX...")
     try:
+        # If no symbols specified, use popular PSX symbols
+        if symbols is None:
+            symbols = ['HBL', 'OGDC', 'LUCK', 'PPL', 'MCB', 'UBL', 'ENGRO', 'MARI', 'PSO', 'HUBC']
+            print(f"   Using top symbols: {', '.join(symbols)}")
+
         raw_announcements = scraper.scrape_announcements(
-            days_back=args.days,
-            symbols=symbols
+            symbols=symbols,
+            days_back=args.days
         )
         print(f"   ✅ Fetched: {len(raw_announcements)} announcements")
     except Exception as e:
