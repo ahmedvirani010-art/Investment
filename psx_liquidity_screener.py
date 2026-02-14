@@ -38,14 +38,16 @@ class PSXLiquidityScreener:
     Traded Value = Volume × Price
     """
 
-    def __init__(self, lookback_days: int = 30):
+    def __init__(self, lookback_days: int = 30, min_price: float = 0.0):
         """
         Initialize the liquidity screener
 
         Args:
             lookback_days: Number of days to calculate average liquidity (default: 30)
+            min_price: Minimum current price filter in PKR (default: 0.0 for no filter)
         """
         self.lookback_days = lookback_days
+        self.min_price = min_price
         self.results = []
 
     def get_psx_stocks(self) -> List[Tuple[str, str]]:
@@ -265,9 +267,12 @@ class PSXLiquidityScreener:
 
         print(f"\n🔍 Screening {total_stocks} PSX stocks for liquidity...")
         print(f"📊 Period: {self.lookback_days} days")
+        if self.min_price > 0:
+            print(f"💰 Price Filter: Minimum Rs {self.min_price:.2f}")
         print(f"🎯 Target: Top {top_n} most liquid stocks\n")
 
         liquidity_data = []
+        filtered_count = 0
 
         for idx, (symbol, name) in enumerate(stocks, 1):
             print(f"[{idx}/{total_stocks}] Analyzing {symbol:10s} - {name[:40]:<40s}", end='\r')
@@ -275,12 +280,20 @@ class PSXLiquidityScreener:
             result = self.fetch_liquidity_data(symbol, name)
 
             if result:
+                # Apply price filter
+                if self.min_price > 0 and result.current_price < self.min_price:
+                    filtered_count += 1
+                    continue
+
                 liquidity_data.append(result)
 
             # Rate limiting to avoid API throttling
             time.sleep(0.1)
 
         print("\n")
+
+        if filtered_count > 0:
+            print(f"🔍 Filtered out {filtered_count} stocks below Rs {self.min_price:.2f}\n")
 
         # Sort by average traded value
         liquidity_data.sort(key=lambda x: x.avg_traded_value, reverse=True)
@@ -306,6 +319,8 @@ class PSXLiquidityScreener:
         print("="*100)
         print(f"Analysis Period: {self.lookback_days} days")
         print(f"Metric: Average Daily Traded Value (Volume × Price)")
+        if self.min_price > 0:
+            print(f"Price Filter: Minimum Rs {self.min_price:.2f}")
         print(f"Total Stocks Analyzed: {len(stocks)}")
         print("="*100)
 
@@ -413,8 +428,8 @@ class PSXLiquidityScreener:
 def main():
     """Run the PSX liquidity screener"""
 
-    # Initialize screener
-    screener = PSXLiquidityScreener(lookback_days=30)
+    # Initialize screener with price filter
+    screener = PSXLiquidityScreener(lookback_days=30, min_price=20.0)
 
     # Screen stocks and get top 100
     top_100 = screener.screen_stocks(top_n=100)

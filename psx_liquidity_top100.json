@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-02-14T04:15:48.867518",
+  "generated_at": "2026-02-14T04:19:32.483619",
   "lookback_days": 30,
-  "total_stocks": 90,
+  "total_stocks": 83,
   "stocks": [
     {
       "rank": 1,
@@ -390,17 +390,6 @@
     },
     {
       "rank": 36,
-      "symbol": "PACE",
-      "name": "Pace Pakistan Limited",
-      "avg_traded_value": 201909273.0228614,
-      "avg_volume": 12152942.413793104,
-      "avg_price": 16.547241309593463,
-      "current_price": 15.050000190734863,
-      "total_traded_value": 5855368917.66298,
-      "trading_days": 29
-    },
-    {
-      "rank": 37,
       "symbol": "BAHL",
       "name": "Bank Al-Habib Limited",
       "avg_traded_value": 174534587.66279286,
@@ -411,7 +400,7 @@
       "trading_days": 29
     },
     {
-      "rank": 38,
+      "rank": 37,
       "symbol": "HMB",
       "name": "Habib Metropolitan Bank",
       "avg_traded_value": 161146148.52612278,
@@ -422,7 +411,7 @@
       "trading_days": 29
     },
     {
-      "rank": 39,
+      "rank": 38,
       "symbol": "SSGC",
       "name": "Sui Southern Gas Company",
       "avg_traded_value": 159792401.94631407,
@@ -433,7 +422,7 @@
       "trading_days": 29
     },
     {
-      "rank": 40,
+      "rank": 39,
       "symbol": "GLAXO",
       "name": "GlaxoSmithKline Pakistan",
       "avg_traded_value": 157539401.1959555,
@@ -444,7 +433,7 @@
       "trading_days": 29
     },
     {
-      "rank": 41,
+      "rank": 40,
       "symbol": "MTL",
       "name": "Millat Tractors Limited",
       "avg_traded_value": 147492675.01902825,
@@ -455,7 +444,7 @@
       "trading_days": 29
     },
     {
-      "rank": 42,
+      "rank": 41,
       "symbol": "KOHC",
       "name": "Kohat Cement Company Limited",
       "avg_traded_value": 145346453.08050695,
@@ -466,7 +455,7 @@
       "trading_days": 29
     },
     {
-      "rank": 43,
+      "rank": 42,
       "symbol": "EPCL",
       "name": "Engro Polymer & Chemicals",
       "avg_traded_value": 137116958.44163448,
@@ -477,7 +466,7 @@
       "trading_days": 29
     },
     {
-      "rank": 44,
+      "rank": 43,
       "symbol": "EFOODS",
       "name": "Engro Foods Limited",
       "avg_traded_value": 128160545.41413906,
@@ -488,7 +477,7 @@
       "trading_days": 28
     },
     {
-      "rank": 45,
+      "rank": 44,
       "symbol": "AICL",
       "name": "Archroma Pakistan Limited",
       "avg_traded_value": 126997760.35661948,
@@ -499,7 +488,7 @@
       "trading_days": 29
     },
     {
-      "rank": 46,
+      "rank": 45,
       "symbol": "NCL",
       "name": "Nishat Chunian Limited",
       "avg_traded_value": 116134287.4963905,
@@ -510,18 +499,7 @@
       "trading_days": 29
     },
     {
-      "rank": 47,
-      "symbol": "WAVES",
-      "name": "Waves Singer Pakistan Limited",
-      "avg_traded_value": 110280278.79262586,
-      "avg_volume": 7323719.655172414,
-      "avg_price": 14.674137838955584,
-      "current_price": 14.420000076293945,
-      "total_traded_value": 3198128084.98615,
-      "trading_days": 29
-    },
-    {
-      "rank": 48,
+      "rank": 46,
       "symbol": "ISL",
       "name": "International Steels Limited",
       "avg_traded_value": 110080655.33883403,
@@ -532,7 +510,7 @@
       "trading_days": 29
     },
     {
-      "rank": 49,
+      "rank": 47,
       "symbol": "NETSOL",
       "name": "NetSol Technologies",
       "avg_traded_value": 97229421.52194977,
@@ -543,7 +521,7 @@
       "trading_days": 29
     },
     {
-      "rank": 50,
+      "rank": 48,
       "symbol": "APL",
       "name": "Attock Petroleum Limited",
       "avg_traded_value": 95812087.14359047,
@@ -554,7 +532,7 @@
       "trading_days": 29
     },
     {
-      "rank": 51,
+      "rank": 49,
       "symbol": "HCAR",
       "name": "Honda Atlas Cars Pakistan",
       "avg_traded_value": 95786186.76567762,
@@ -565,7 +543,7 @@
       "trading_days": 29
     },
     {
-      "rank": 52,
+      "rank": 50,
       "symbol": "CLOV",
       "name": "Clover Pakistan Limited",
       "avg_traded_value": 94557990.87342861,
@@ -576,7 +554,7 @@
       "trading_days": 29
     },
     {
-      "rank": 53,
+      "rank": 51,
       "symbol": "CHCC",
       "name": "Cherat Cement Company",
       "avg_traded_value": 89141177.35150988,
@@ -587,7 +565,7 @@
       "trading_days": 29
     },
     {
-      "rank": 54,
+      "rank": 52,
       "symbol": "ASTL",
       "name": "Amreli Steels Limited",
       "avg_traded_value": 86980667.24493626,
@@ -598,51 +576,7 @@
       "trading_days": 29
     },
     {
-      "rank": 55,
-      "symbol": "UNITY",
-      "name": "Unity Foods Limited",
-      "avg_traded_value": 83637813.20876391,
-      "avg_volume": 4063415.172413793,
-      "avg_price": 20.411724090576172,
-      "current_price": 17.65999984741211,
-      "total_traded_value": 2425496583.0541534,
-      "trading_days": 29
-    },
-    {
-      "rank": 56,
-      "symbol": "LOADS",
-      "name": "Loads Limited",
-      "avg_traded_value": 76075869.78217296,
-      "avg_volume": 4084149.433333333,
-      "avg_price": 17.470125071207683,
-      "current_price": 16.0,
-      "total_traded_value": 2282276093.465189,
-      "trading_days": 30
-    },
-    {
-      "rank": 57,
-      "symbol": "ASL",
-      "name": "Aisha Steel Mills Limited",
-      "avg_traded_value": 68033587.84049124,
-      "avg_volume": 5061416.620689655,
-      "avg_price": 13.387241396410712,
-      "current_price": 13.09000015258789,
-      "total_traded_value": 1972974047.3742456,
-      "trading_days": 29
-    },
-    {
-      "rank": 58,
-      "symbol": "WTL",
-      "name": "WorldCall Telecom Limited",
-      "avg_traded_value": 61811855.25883644,
-      "avg_volume": 35634278.68965517,
-      "avg_price": 1.7310344844028867,
-      "current_price": 1.6299999952316284,
-      "total_traded_value": 1792543802.5062568,
-      "trading_days": 29
-    },
-    {
-      "rank": 59,
+      "rank": 53,
       "symbol": "NATF",
       "name": "Natco Pharma Limited",
       "avg_traded_value": 61135015.202333644,
@@ -653,7 +587,7 @@
       "trading_days": 29
     },
     {
-      "rank": 60,
+      "rank": 54,
       "symbol": "INDU",
       "name": "Indus Motor Company",
       "avg_traded_value": 51762963.411486395,
@@ -664,7 +598,7 @@
       "trading_days": 29
     },
     {
-      "rank": 61,
+      "rank": 55,
       "symbol": "KAPCO",
       "name": "Kot Addu Power Company",
       "avg_traded_value": 49332309.58341717,
@@ -675,7 +609,7 @@
       "trading_days": 29
     },
     {
-      "rank": 62,
+      "rank": 56,
       "symbol": "ACPL",
       "name": "Attock Cement Pakistan Limited",
       "avg_traded_value": 46321640.65636155,
@@ -686,7 +620,7 @@
       "trading_days": 29
     },
     {
-      "rank": 63,
+      "rank": 57,
       "symbol": "AVN",
       "name": "Avanceon Limited",
       "avg_traded_value": 45918987.07924994,
@@ -697,7 +631,7 @@
       "trading_days": 29
     },
     {
-      "rank": 64,
+      "rank": 58,
       "symbol": "SNBL",
       "name": "Soneri Bank Limited",
       "avg_traded_value": 41110279.10733618,
@@ -708,7 +642,7 @@
       "trading_days": 29
     },
     {
-      "rank": 65,
+      "rank": 59,
       "symbol": "GTYR",
       "name": "General Tyre & Rubber Company",
       "avg_traded_value": 35168635.10704185,
@@ -719,7 +653,7 @@
       "trading_days": 29
     },
     {
-      "rank": 66,
+      "rank": 60,
       "symbol": "HINOON",
       "name": "Hinopak Motors Limited",
       "avg_traded_value": 34103344.01690043,
@@ -730,7 +664,7 @@
       "trading_days": 29
     },
     {
-      "rank": 67,
+      "rank": 61,
       "symbol": "KTML",
       "name": "Kohinoor Textile Mills",
       "avg_traded_value": 29736318.403397527,
@@ -741,7 +675,7 @@
       "trading_days": 29
     },
     {
-      "rank": 68,
+      "rank": 62,
       "symbol": "GATM",
       "name": "Gul Ahmed Textile Mills",
       "avg_traded_value": 28039838.09604783,
@@ -752,7 +686,7 @@
       "trading_days": 29
     },
     {
-      "rank": 69,
+      "rank": 63,
       "symbol": "FEROZ",
       "name": "Ferozsons Laboratories Limited",
       "avg_traded_value": 27621835.02746687,
@@ -763,7 +697,7 @@
       "trading_days": 29
     },
     {
-      "rank": 70,
+      "rank": 64,
       "symbol": "AGTL",
       "name": "AGP Limited",
       "avg_traded_value": 27388438.257246345,
@@ -774,7 +708,7 @@
       "trading_days": 29
     },
     {
-      "rank": 71,
+      "rank": 65,
       "symbol": "THALL",
       "name": "Thal Limited",
       "avg_traded_value": 25948388.927016687,
@@ -785,7 +719,7 @@
       "trading_days": 29
     },
     {
-      "rank": 72,
+      "rank": 66,
       "symbol": "ABOT",
       "name": "Abbott Laboratories Pakistan",
       "avg_traded_value": 25672822.232737575,
@@ -796,7 +730,7 @@
       "trading_days": 29
     },
     {
-      "rank": 73,
+      "rank": 67,
       "symbol": "ABL",
       "name": "Allied Bank Limited",
       "avg_traded_value": 20972520.771069232,
@@ -807,7 +741,7 @@
       "trading_days": 29
     },
     {
-      "rank": 74,
+      "rank": 68,
       "symbol": "PKGS",
       "name": "Packages Limited",
       "avg_traded_value": 17734246.80177465,
@@ -818,7 +752,7 @@
       "trading_days": 29
     },
     {
-      "rank": 75,
+      "rank": 69,
       "symbol": "ATLH",
       "name": "Atlas Honda Limited",
       "avg_traded_value": 16796232.86329809,
@@ -829,7 +763,7 @@
       "trading_days": 29
     },
     {
-      "rank": 76,
+      "rank": 70,
       "symbol": "SHFA",
       "name": "Shifa International Hospital",
       "avg_traded_value": 15187115.100543844,
@@ -840,7 +774,7 @@
       "trading_days": 29
     },
     {
-      "rank": 77,
+      "rank": 71,
       "symbol": "SHEL",
       "name": "Shell Pakistan Limited",
       "avg_traded_value": 15148892.26418436,
@@ -851,7 +785,7 @@
       "trading_days": 29
     },
     {
-      "rank": 78,
+      "rank": 72,
       "symbol": "FLYNG",
       "name": "Faysal Bank Limited",
       "avg_traded_value": 14398532.468826031,
@@ -862,7 +796,7 @@
       "trading_days": 29
     },
     {
-      "rank": 79,
+      "rank": 73,
       "symbol": "COLG",
       "name": "Colgate Palmolive Pakistan",
       "avg_traded_value": 11347096.215390962,
@@ -873,7 +807,7 @@
       "trading_days": 29
     },
     {
-      "rank": 80,
+      "rank": 74,
       "symbol": "ADMM",
       "name": "Adamjee Insurance Company",
       "avg_traded_value": 9342907.960893566,
@@ -884,7 +818,7 @@
       "trading_days": 29
     },
     {
-      "rank": 81,
+      "rank": 75,
       "symbol": "CPPL",
       "name": "Century Paper & Board Mills",
       "avg_traded_value": 7808700.667999005,
@@ -895,7 +829,7 @@
       "trading_days": 29
     },
     {
-      "rank": 82,
+      "rank": 76,
       "symbol": "GADT",
       "name": "Ghandhara Automobiles Limited",
       "avg_traded_value": 5691781.248134218,
@@ -906,7 +840,7 @@
       "trading_days": 29
     },
     {
-      "rank": 83,
+      "rank": 77,
       "symbol": "SIEM",
       "name": "Siemens Pakistan Engineering",
       "avg_traded_value": 5606821.907765356,
@@ -917,18 +851,7 @@
       "trading_days": 29
     },
     {
-      "rank": 84,
-      "symbol": "JSBL",
-      "name": "JS Bank Limited",
-      "avg_traded_value": 4588996.800600512,
-      "avg_volume": 257680.3448275862,
-      "avg_price": 17.7441379941743,
-      "current_price": 17.489999771118164,
-      "total_traded_value": 133080907.21741486,
-      "trading_days": 29
-    },
-    {
-      "rank": 85,
+      "rank": 78,
       "symbol": "SCBPL",
       "name": "Standard Chartered Bank Pakistan",
       "avg_traded_value": 3608394.3846017243,
@@ -939,7 +862,7 @@
       "trading_days": 29
     },
     {
-      "rank": 86,
+      "rank": 79,
       "symbol": "NESTLE",
       "name": "Nestle Pakistan Limited",
       "avg_traded_value": 3023344.185125943,
@@ -950,7 +873,7 @@
       "trading_days": 29
     },
     {
-      "rank": 87,
+      "rank": 80,
       "symbol": "RMPL",
       "name": "Rafhan Maize Products",
       "avg_traded_value": 1910782.7180765087,
@@ -961,7 +884,7 @@
       "trading_days": 29
     },
     {
-      "rank": 88,
+      "rank": 81,
       "symbol": "RMPL",
       "name": "Rafhan Maize Products Company",
       "avg_traded_value": 1910782.7180765087,
@@ -972,7 +895,7 @@
       "trading_days": 29
     },
     {
-      "rank": 89,
+      "rank": 82,
       "symbol": "BNWM",
       "name": "Bannu Woollen Mills Limited",
       "avg_traded_value": 957596.0295236522,
@@ -983,7 +906,7 @@
       "trading_days": 29
     },
     {
-      "rank": 90,
+      "rank": 83,
       "symbol": "FHAM",
       "name": "Fauji Foods Limited",
       "avg_traded_value": 698536.1369096164,
