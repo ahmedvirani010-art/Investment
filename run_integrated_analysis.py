@@ -78,10 +78,10 @@ def run_full_analysis(
         articles = news_agent.fetch_recent_news(hours=news_hours)
         summary = news_agent.process_articles(articles)
 
-        print(f"✅ Fetched {summary['total_fetched']} articles")
-        print(f"   New: {summary['new_articles']}, Duplicates: {summary['duplicates']}")
-        print(f"   Stock-specific: {summary['stock_news_count']}")
-        print(f"   Macro news: {summary['macro_news_count']}")
+        print(f"✅ Fetched {summary.total_fetched} articles")
+        print(f"   New: {summary.new_articles}, Duplicates: {summary.duplicates}")
+        print(f"   Stock-specific: {summary.stock_news}")
+        print(f"   Macro news: {summary.macro_news}")
     else:
         print(f"\n📰 STEP 2: News Collection")
         print("-"*100)
@@ -133,7 +133,7 @@ def run_full_analysis(
     print("="*100)
     print(f"Stocks Analyzed: {len(symbols)}")
     if fetch_news:
-        print(f"News Articles Fetched: {summary['total_fetched']}")
+        print(f"News Articles Fetched: {summary.total_fetched}")
     print(f"Anomalies Detected: {total_anomalies}")
     if anomalies_report:
         print(f"News Explanations Found: {explained} ({explained/total_anomalies*100:.1f}%)")
