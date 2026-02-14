@@ -9,17 +9,20 @@ from dataclasses import dataclass
 from psx_anomaly_agent import Anomaly, AnomalyType, Severity
 from psx_news_storage import NewsStorage, NewsArticle
 from psx_news_agent import PSXNewsAgent
+from psx_announcement_storage import AnnouncementStorage, Announcement
 import re
 
 
 @dataclass
 class NewsAnomalyCorrelation:
-    """Represents a correlation between news and an anomaly"""
+    """Represents a correlation between news/announcements and an anomaly"""
     anomaly: Anomaly
     related_news: List[NewsArticle]
+    related_announcements: List[Announcement]  # PSX official announcements
     correlation_score: float
     explanation: str
     news_summary: List[str]
+    announcement_summary: List[str]  # Official announcements summary
 
 
 class NewsAnomalyCorrelator:
@@ -30,29 +33,62 @@ class NewsAnomalyCorrelator:
     to provide context and potential explanations for unusual market behavior.
     """
 
-    def __init__(self, news_storage: Optional[NewsStorage] = None):
+    def __init__(
+        self,
+        news_storage: Optional[NewsStorage] = None,
+        announcement_storage: Optional[AnnouncementStorage] = None
+    ):
         """
         Initialize correlator
 
         Args:
             news_storage: NewsStorage instance (creates new if None)
+            announcement_storage: AnnouncementStorage instance (creates new if None)
         """
         self.storage = news_storage or NewsStorage()
+        self.announcement_storage = announcement_storage or AnnouncementStorage()
 
     def correlate_anomaly(self, anomaly: Anomaly, lookback_days: int = 3) -> NewsAnomalyCorrelation:
         """
-        Find news articles that may explain an anomaly
+        Find news articles and PSX announcements that may explain an anomaly
 
-        PSX Context: Focus on material news that moves markets
+        PSX Context: Prioritize official announcements over media news
 
         Args:
             anomaly: Detected anomaly
-            lookback_days: How many days back to search for news
+            lookback_days: How many days back to search
 
         Returns:
             NewsAnomalyCorrelation with scored relevance
         """
-        # Get news for the specific symbol
+        # STEP 1: Check PSX official announcements FIRST (primary source)
+        announcements = self.announcement_storage.get_announcements_by_symbol(
+            anomaly.symbol,
+            days=lookback_days
+        )
+
+        # Score announcements (higher base score than news - authoritative source)
+        scored_items = []
+
+        for ann in announcements:
+            # Base score depends on materiality tier
+            if ann.materiality_tier == 1:  # Critical
+                base_score = 0.8
+            elif ann.materiality_tier == 2:  # Material
+                base_score = 0.6
+            else:  # Informational
+                base_score = 0.3
+
+            # Time proximity bonus
+            time_score = self._time_proximity_score(anomaly, ann.announcement_date)
+
+            # Anomaly type alignment bonus
+            type_bonus = self._announcement_anomaly_alignment(anomaly, ann)
+
+            total_score = min(base_score + time_score + type_bonus, 1.0)
+            scored_items.append((total_score, 'announcement', ann))
+
+        # STEP 2: Get news articles (secondary source)
         symbol_news = self.storage.get_articles_by_symbol(
             anomaly.symbol,
             days=lookback_days
@@ -61,55 +97,140 @@ class NewsAnomalyCorrelator:
         # Get macro news that might affect the stock
         macro_news = self.storage.get_macro_news(hours=lookback_days * 24)
 
-        # Score and filter relevant news
-        scored_news = []
-
+        # Score symbol-specific news (with penalty for being secondary source)
         for article in symbol_news:
             # Check materiality first
             if not self._is_news_material(article, anomaly):
                 continue
 
             score = self._calculate_relevance_score(anomaly, article, is_direct=True)
-            if score > 0.4:  # Higher threshold for quality
-                scored_news.append((score, article))
+            # 20% penalty for being secondary source vs official announcement
+            if score > 0.4:
+                scored_items.append((score * 0.8, 'news', article))
 
-        # Add relevant macro news
+        # Add relevant macro news (with even higher penalty)
         for article in macro_news:
-            # Check if macro category affects this anomaly type
             if self._is_macro_relevant(anomaly, article):
-                # Macro news already has materiality check in _is_macro_relevant
                 score = self._calculate_relevance_score(anomaly, article, is_direct=False)
-                if score > 0.5:  # Even higher threshold for macro
-                    scored_news.append((score, article))
+                # 30% penalty for macro news
+                if score > 0.5:
+                    scored_items.append((score * 0.7, 'news', article))
 
-        # Sort by relevance score
-        scored_news.sort(reverse=True, key=lambda x: x[0])
+        # Sort by score (announcements naturally rank higher)
+        scored_items.sort(reverse=True, key=lambda x: x[0])
 
-        # Get top articles
-        top_news = [article for _, article in scored_news[:5]]
+        # Separate announcements and news
+        related_announcements = [
+            item for score, source_type, item in scored_items
+            if source_type == 'announcement'
+        ][:3]  # Top 3 announcements
 
-        # Calculate overall correlation score
-        if scored_news:
-            correlation_score = max(score for score, _ in scored_news)
+        related_news = [
+            item for score, source_type, item in scored_items
+            if source_type == 'news'
+        ][:5]  # Top 5 news articles
+
+        # Calculate overall correlation score (best item wins)
+        if scored_items:
+            correlation_score = scored_items[0][0]
         else:
             correlation_score = 0.0
 
-        # Generate explanation
-        explanation = self._generate_explanation(anomaly, top_news, correlation_score)
+        # Generate enhanced explanation (prioritizes announcements)
+        explanation = self._generate_explanation_with_announcements(
+            anomaly, related_announcements, related_news, correlation_score
+        )
 
-        # Create news summary
+        # Create summaries
+        announcement_summary = [
+            f"{ann.title} ({ann.announcement_date.strftime('%Y-%m-%d')}) [Tier {ann.materiality_tier}]"
+            for ann in related_announcements
+        ]
+
         news_summary = [
             f"{article.title} ({article.source}, {article.published_date.strftime('%Y-%m-%d')})"
-            for article in top_news[:3]
+            for article in related_news[:3]
         ]
 
         return NewsAnomalyCorrelation(
             anomaly=anomaly,
-            related_news=top_news,
+            related_news=related_news,
+            related_announcements=related_announcements,
             correlation_score=correlation_score,
             explanation=explanation,
-            news_summary=news_summary
+            news_summary=news_summary,
+            announcement_summary=announcement_summary
         )
+
+    def _time_proximity_score(self, anomaly: Anomaly, announcement_date: datetime) -> float:
+        """
+        Calculate time proximity score for announcement
+
+        Args:
+            anomaly: The anomaly
+            announcement_date: When announcement was made
+
+        Returns:
+            Score (0.0 to 0.3)
+        """
+        anomaly_date = datetime.strptime(anomaly.date, '%Y-%m-%d')
+        days_diff = abs((anomaly_date - announcement_date).days)
+
+        if days_diff == 0:
+            return 0.3  # Same day - highest relevance
+        elif days_diff == 1:
+            return 0.2  # Day before/after
+        elif days_diff <= 2:
+            return 0.1  # Within 2 days
+        else:
+            return 0.0  # Too far
+
+    def _announcement_anomaly_alignment(self, anomaly: Anomaly, announcement: Announcement) -> float:
+        """
+        Score how well announcement type aligns with anomaly type
+
+        Args:
+            anomaly: The anomaly
+            announcement: The announcement
+
+        Returns:
+            Alignment bonus (0.0 to 0.2)
+        """
+        score = 0.0
+
+        # Dividends cause volume spikes and price movements
+        if announcement.category == 'dividend':
+            if anomaly.anomaly_type in [AnomalyType.VOLUME_SPIKE, AnomalyType.PRICE_MOVEMENT]:
+                score += 0.15
+                # Large dividends create larger moves
+                if announcement.dividend_amount and announcement.dividend_amount >= 30:
+                    score += 0.05
+
+        # Financial results cause all types of anomalies
+        if announcement.category == 'financial_results':
+            score += 0.1
+            # Strong profit changes aligned with price movement
+            if announcement.profit_change_pct and anomaly.anomaly_type == AnomalyType.PRICE_MOVEMENT:
+                if (announcement.profit_change_pct > 0 and anomaly.value > 0) or \
+                   (announcement.profit_change_pct < 0 and anomaly.value < 0):
+                    score += 0.1
+
+        # Major contracts cause positive price moves and volume
+        if announcement.category == 'contract' and announcement.subcategory == 'major':
+            if anomaly.anomaly_type in [AnomalyType.VOLUME_SPIKE, AnomalyType.PRICE_MOVEMENT]:
+                score += 0.15
+
+        # Corporate actions cause high volume and volatility
+        if announcement.category == 'corporate_action':
+            if anomaly.anomaly_type in [AnomalyType.VOLUME_SPIKE, AnomalyType.VOLATILITY_SPIKE]:
+                score += 0.15
+
+        # Material info typically negative
+        if announcement.category == 'material_info':
+            if anomaly.anomaly_type == AnomalyType.PRICE_MOVEMENT and anomaly.value < 0:
+                score += 0.1
+
+        return min(score, 0.2)
 
     def _calculate_relevance_score(
         self,
@@ -491,6 +612,126 @@ class NewsAnomalyCorrelator:
         # Default: filter out
         return False
 
+    def _generate_explanation_with_announcements(
+        self,
+        anomaly: Anomaly,
+        announcements: List[Announcement],
+        news_articles: List[NewsArticle],
+        correlation_score: float
+    ) -> str:
+        """
+        Generate human-readable explanation prioritizing official announcements
+
+        PSX Context: Official announcements > Media news
+        """
+
+        if correlation_score < 0.3:
+            # Check if it's a high-severity unexplained anomaly
+            if anomaly.severity == Severity.HIGH:
+                return ("⚠️  High-severity anomaly with no clear catalyst. "
+                       "Possible insider activity, technical factors, or unreported news.")
+            return "No material news or announcements found. May be technical/sector rotation."
+
+        # Build explanation prioritizing announcements
+        explanation_parts = []
+
+        # Check if we have official announcement explaining this
+        has_critical_announcement = any(
+            ann.materiality_tier == 1 for ann in announcements
+        )
+        has_any_announcement = len(announcements) > 0
+
+        # PRIORITY 1: Official PSX Announcement (authoritative)
+        if has_critical_announcement and correlation_score >= 0.7:
+            explanation_parts.append("🎯 OFFICIAL ANNOUNCEMENT (PSX):")
+            explanation_parts.append("   " + "="*76)
+
+            # Show top critical announcement
+            critical = [ann for ann in announcements if ann.materiality_tier == 1][0]
+            explanation_parts.append(f"   📋 {critical.title}")
+            explanation_parts.append(f"   📅 {critical.announcement_date.strftime('%Y-%m-%d')}")
+            explanation_parts.append(f"   🏷️  Category: {critical.category}")
+            if critical.subcategory:
+                explanation_parts.append(f"        Subcategory: {critical.subcategory}")
+            explanation_parts.append(f"   ⭐ Materiality: Tier {critical.materiality_tier} (CRITICAL)")
+
+            # Add financial details if available
+            if critical.dividend_amount:
+                explanation_parts.append(f"   💰 Dividend: {critical.dividend_amount}% ({critical.dividend_type})")
+            if critical.eps:
+                explanation_parts.append(f"   📊 EPS: Rs {critical.eps}")
+            if critical.profit_change_pct:
+                explanation_parts.append(f"   📈 Profit: {critical.profit_change_pct:+.1f}% YoY")
+
+            explanation_parts.append("")
+            explanation_parts.append("   💡 Action: Official catalyst identified - review fundamentals")
+
+        # PRIORITY 2: Material announcement (tier 2) or multiple announcements
+        elif has_any_announcement and correlation_score >= 0.5:
+            explanation_parts.append("📋 PSX Announcement (Material):")
+
+            for ann in announcements[:2]:
+                tier_label = {1: "CRITICAL", 2: "MATERIAL", 3: "INFO"}[ann.materiality_tier]
+                explanation_parts.append(f"   • {ann.title}")
+                explanation_parts.append(f"     [{ann.category} | Tier {ann.materiality_tier}: {tier_label}]")
+
+            explanation_parts.append("")
+            explanation_parts.append("   💡 Action: Check announcement details for impact assessment")
+
+        # PRIORITY 3: News-based explanation (no authoritative announcement)
+        else:
+            is_company_specific = any(
+                article.primary_symbol == anomaly.symbol
+                for article in news_articles
+            )
+            is_macro_driven = any(
+                article.is_macro_news
+                for article in news_articles
+            )
+
+            # Header based on correlation strength
+            if correlation_score >= 0.7:
+                if is_company_specific:
+                    explanation_parts.append("📰 News Report (verify with PSX announcements):")
+                elif is_macro_driven:
+                    explanation_parts.append("📊 Macro News (sector/market-wide):")
+                else:
+                    explanation_parts.append("🔗 News Correlation:")
+            elif correlation_score >= 0.5:
+                if is_macro_driven:
+                    explanation_parts.append("📊 Likely macro-driven (check sector peers):")
+                else:
+                    explanation_parts.append("🔍 Moderate news correlation:")
+            else:
+                explanation_parts.append("💭 Possible news-related (low confidence):")
+
+            # Add top news
+            for article in news_articles[:2]:
+                sentiment_str = ""
+                if article.sentiment_label and article.sentiment_score:
+                    if abs(article.sentiment_score) > 0.5:
+                        sentiment_str = f" [{article.sentiment_label.upper()}]"
+                    else:
+                        sentiment_str = f" [{article.sentiment_label}]"
+
+                news_type = "📊" if article.is_macro_news else "📰"
+                explanation_parts.append(f"   {news_type} {article.title}{sentiment_str}")
+
+            # Add recommendation
+            if not has_any_announcement:
+                explanation_parts.append("")
+                explanation_parts.append("   ⚠️  Note: Secondary source - check PSX for official announcement")
+
+        # Supporting news (if we have announcements + news)
+        if has_any_announcement and len(news_articles) > 0 and correlation_score >= 0.7:
+            explanation_parts.append("")
+            explanation_parts.append("   Supporting news coverage:")
+            for article in news_articles[:2]:
+                sentiment = f" ({article.sentiment_label})" if article.sentiment_label else ""
+                explanation_parts.append(f"   📰 {article.title[:60]}...{sentiment}")
+
+        return "\n".join(explanation_parts)
+
     def _generate_explanation(
         self,
         anomaly: Anomaly,
@@ -498,82 +739,13 @@ class NewsAnomalyCorrelator:
         correlation_score: float
     ) -> str:
         """
-        Generate human-readable explanation for the anomaly
+        Legacy method - calls enhanced version with no announcements
 
-        PSX Context: Provide actionable insights, not just correlation
+        Maintained for backward compatibility
         """
-
-        if correlation_score < 0.3:
-            # Check if it's a high-severity unexplained anomaly
-            if anomaly.severity == Severity.HIGH:
-                return ("⚠️  High-severity anomaly with no clear news catalyst. "
-                       "Possible insider activity, technical factors, or unreported news.")
-            return "No material news found. May be technical/sector rotation."
-
-        # Categorize the explanation type
-        is_company_specific = any(
-            article.primary_symbol == anomaly.symbol
-            for article in news_articles
+        return self._generate_explanation_with_announcements(
+            anomaly, [], news_articles, correlation_score
         )
-        is_macro_driven = any(
-            article.is_macro_news
-            for article in news_articles
-        )
-
-        # Build contextual explanation
-        explanation_parts = []
-
-        # Header based on correlation strength and type
-        if correlation_score >= 0.7:
-            if is_company_specific:
-                explanation_parts.append("🎯 Strong catalyst identified (company-specific):")
-            elif is_macro_driven:
-                explanation_parts.append("📊 Strong macro driver (sector/market-wide):")
-            else:
-                explanation_parts.append("🔗 Strong correlation with news:")
-        elif correlation_score >= 0.5:
-            if is_macro_driven:
-                explanation_parts.append("📊 Likely macro-driven (check sector peers):")
-            else:
-                explanation_parts.append("🔍 Moderate news correlation:")
-        else:
-            explanation_parts.append("💭 Possible news-related (low confidence):")
-
-        # Add top news with context
-        for i, article in enumerate(news_articles[:2], 1):
-            sentiment_str = ""
-            if article.sentiment_label and article.sentiment_score:
-                if abs(article.sentiment_score) > 0.5:
-                    sentiment_str = f" [{article.sentiment_label.upper()}]"
-                else:
-                    sentiment_str = f" [{article.sentiment_label}]"
-
-            # Add materiality indicator
-            news_type = "📰"
-            if article.is_macro_news:
-                news_type = "📊"
-            if article.primary_symbol == anomaly.symbol:
-                news_type = "🎯"
-
-            explanation_parts.append(
-                f"  {news_type} {article.title}{sentiment_str}"
-            )
-
-        # Add trading recommendation context
-        if correlation_score >= 0.7 and is_company_specific:
-            explanation_parts.append(
-                "\n  💡 Action: Review company fundamentals - news-driven move may create opportunity"
-            )
-        elif correlation_score >= 0.7 and is_macro_driven:
-            explanation_parts.append(
-                "\n  💡 Action: Check sector peers - macro news affects multiple stocks"
-            )
-        elif anomaly.severity == Severity.HIGH and correlation_score < 0.5:
-            explanation_parts.append(
-                "\n  ⚠️  Action: Investigate - large move without clear catalyst"
-            )
-
-        return "\n".join(explanation_parts)
 
     def correlate_all(
         self,
@@ -608,7 +780,7 @@ class NewsAnomalyCorrelator:
         """Print formatted correlation report"""
 
         print("\n" + "="*100)
-        print("PSX ANOMALY-NEWS CORRELATION REPORT")
+        print("PSX ANOMALY-ANNOUNCEMENT-NEWS CORRELATION REPORT")
         print("="*100)
 
         total_anomalies = sum(len(corrs) for corrs in correlations.values())
@@ -618,9 +790,18 @@ class NewsAnomalyCorrelator:
             if corr.correlation_score >= 0.5
         )
 
+        # Count anomalies explained by announcements
+        announcement_explained = sum(
+            1 for corrs in correlations.values()
+            for corr in corrs
+            if len(corr.related_announcements) > 0 and corr.correlation_score >= 0.5
+        )
+
         print(f"\nTotal Anomalies: {total_anomalies}")
-        print(f"Anomalies with News Correlation (≥50%): {explained_anomalies}")
+        print(f"Explained by Announcements (≥50%): {announcement_explained}")
+        print(f"Explained by News/Announcements (≥50%): {explained_anomalies}")
         print(f"Coverage: {explained_anomalies/total_anomalies*100:.1f}%")
+        print(f"Announcement Coverage: {announcement_explained/total_anomalies*100:.1f}%")
 
         for symbol, symbol_correlations in correlations.items():
             print(f"\n{'='*100}")
@@ -649,10 +830,40 @@ class NewsAnomalyCorrelator:
                 print(f"   {anomaly.description}")
                 print(f"   Z-Score: {anomaly.z_score:.2f}")
 
-                # News correlation
+                # Correlation score
                 correlation_emoji = "🔗" if corr.correlation_score >= 0.7 else "🔍" if corr.correlation_score >= 0.5 else "❓"
-                print(f"\n   {correlation_emoji} News Correlation: {corr.correlation_score*100:.0f}%")
+                print(f"\n   {correlation_emoji} Correlation Score: {corr.correlation_score*100:.0f}%")
 
+                # Show PSX announcements FIRST (priority)
+                if corr.related_announcements:
+                    print(f"\n   🎯 PSX Announcements ({len(corr.related_announcements)}):")
+                    print("   " + "="*76)
+
+                    for i, ann in enumerate(corr.related_announcements, 1):
+                        # Tier indicator
+                        tier_emoji = {1: "🔴", 2: "🟡", 3: "🟢"}[ann.materiality_tier]
+                        tier_label = {1: "CRITICAL", 2: "MATERIAL", 3: "INFO"}[ann.materiality_tier]
+
+                        print(f"   {i}. {tier_emoji} {ann.title}")
+                        print(f"      Category: {ann.category}", end="")
+                        if ann.subcategory:
+                            print(f" ({ann.subcategory})", end="")
+                        print(f" | Tier {ann.materiality_tier}: {tier_label}")
+                        print(f"      Date: {ann.announcement_date.strftime('%Y-%m-%d')}")
+
+                        # Financial data
+                        if ann.dividend_amount:
+                            print(f"      💰 Dividend: {ann.dividend_amount}% ({ann.dividend_type})")
+                        if ann.eps:
+                            print(f"      📊 EPS: Rs {ann.eps}")
+                        if ann.profit_change_pct:
+                            print(f"      📈 Profit: {ann.profit_change_pct:+.1f}% YoY")
+
+                        if ann.source_url:
+                            print(f"      🔗 {ann.source_url}")
+                        print()
+
+                # Show news articles (secondary source)
                 if corr.related_news:
                     print(f"   📰 Related News ({len(corr.related_news)} articles):")
                     for i, article in enumerate(corr.related_news[:3], 1):
@@ -671,7 +882,8 @@ class NewsAnomalyCorrelator:
                         if article.is_macro_news:
                             print(f"         📊 Macro: {article.macro_category}")
                 else:
-                    print(f"   ❌ No related news found")
+                    if not corr.related_announcements:
+                        print(f"   ❌ No announcements or news found")
 
                 print()
 
