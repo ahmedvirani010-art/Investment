@@ -43,6 +43,8 @@ class NewsAnomalyCorrelator:
         """
         Find news articles that may explain an anomaly
 
+        PSX Context: Focus on material news that moves markets
+
         Args:
             anomaly: Detected anomaly
             lookback_days: How many days back to search for news
@@ -63,16 +65,21 @@ class NewsAnomalyCorrelator:
         scored_news = []
 
         for article in symbol_news:
+            # Check materiality first
+            if not self._is_news_material(article, anomaly):
+                continue
+
             score = self._calculate_relevance_score(anomaly, article, is_direct=True)
-            if score > 0.3:  # Relevance threshold
+            if score > 0.4:  # Higher threshold for quality
                 scored_news.append((score, article))
 
         # Add relevant macro news
         for article in macro_news:
             # Check if macro category affects this anomaly type
             if self._is_macro_relevant(anomaly, article):
+                # Macro news already has materiality check in _is_macro_relevant
                 score = self._calculate_relevance_score(anomaly, article, is_direct=False)
-                if score > 0.4:  # Higher threshold for macro news
+                if score > 0.5:  # Even higher threshold for macro
                     scored_news.append((score, article))
 
         # Sort by relevance score
@@ -210,41 +217,278 @@ class NewsAnomalyCorrelator:
 
         return score
 
+    def _is_news_material(self, article: NewsArticle, anomaly: Anomaly) -> bool:
+        """
+        Check if stock-specific news is material enough to move the stock
+
+        PSX Context: Filter out noise, focus on real catalysts
+        """
+        text = (article.title + " " + article.summary).lower()
+
+        # TIER 1: Always material events
+        # ================================
+
+        high_impact_keywords = [
+            # Corporate actions
+            'dividend', 'bonus', 'right issue', 'stock split',
+            'merger', 'acquisition', 'takeover', 'buyback',
+
+            # Financial results
+            'profit', 'loss', 'earnings', 'results', 'quarterly',
+            'annual results', 'financial results', 'net profit',
+
+            # Major contracts/deals
+            'contract', 'award', 'wins', 'agreement', 'deal',
+            'project', 'expansion', 'investment',
+
+            # Management changes
+            'ceo', 'chairman', 'board', 'director', 'appoint',
+            'resign', 'management',
+
+            # Regulatory/legal
+            'secp', 'investigation', 'penalty', 'fine',
+            'approval', 'license', 'compliance',
+
+            # Operations
+            'production', 'capacity', 'plant', 'shutdown',
+            'restart', 'maintenance', 'discovery',
+
+            # Debt/financing
+            'loan', 'financing', 'debt', 'sukuk', 'tfc',
+            'credit rating', 'default', 'restructuring'
+        ]
+
+        if any(keyword in text for keyword in high_impact_keywords):
+            return True
+
+        # TIER 2: Context-dependent materiality
+        # ======================================
+
+        # Large volume anomalies need strong catalysts
+        if anomaly.anomaly_type == AnomalyType.VOLUME_SPIKE:
+            # Volume spike without clear catalyst is less reliable
+            volume_catalysts = [
+                'stake', 'shareholding', 'block trade', 'institutional',
+                'foreign investment', 'divestment', 'placement'
+            ]
+            if any(keyword in text for keyword in volume_catalysts):
+                return True
+
+            # High severity volume spike without news is suspicious
+            if anomaly.severity == Severity.HIGH:
+                return True  # Flag it anyway for investigation
+
+        # Price movements need clear drivers
+        if anomaly.anomaly_type == AnomalyType.PRICE_MOVEMENT:
+            price_drivers = [
+                'upgrade', 'downgrade', 'target price', 'recommendation',
+                'analyst', 'rating', 'buy', 'sell'
+            ]
+            if any(keyword in text for keyword in price_drivers):
+                return True
+
+        # TIER 3: Filter out noise
+        # =========================
+
+        # General market commentary without specifics
+        noise_keywords = [
+            'market watch', 'market roundup', 'trading summary',
+            'weekly review', 'daily brief', 'market close'
+        ]
+        if any(keyword in text for keyword in noise_keywords):
+            return False
+
+        # Speculation without substance
+        speculation_keywords = [
+            'rumor', 'rumour', 'speculation', 'unconfirmed',
+            'sources say', 'alleged'
+        ]
+        if any(keyword in text for keyword in speculation_keywords):
+            # Only allow if high-confidence sentiment
+            if article.sentiment_confidence and article.sentiment_confidence < 0.7:
+                return False
+
+        # TIER 4: Sentiment-based materiality
+        # ====================================
+
+        # Strong sentiment with weak relevance = noise
+        if article.sentiment_score:
+            # Very strong sentiment (|score| > 0.7) with substance is material
+            if abs(article.sentiment_score) > 0.7 and len(article.summary) > 100:
+                return True
+
+        # Default: conservative filter
+        # If article relevance score was already high, it passed
+        if article.relevance_score > 0.7:
+            return True
+
+        return False
+
     def _is_macro_relevant(self, anomaly: Anomaly, article: NewsArticle) -> bool:
-        """Check if macro news is relevant to the anomaly"""
+        """
+        Check if macro news is material and relevant to the anomaly
+
+        PSX Context: Focus on structural changes, not daily noise
+        """
         if not article.is_macro_news or not article.macro_category:
             return False
 
-        # Interest rate changes affect all stocks
+        text = (article.title + " " + article.summary).lower()
+
+        # TIER 1: High-impact macro news (always relevant to PSX)
+        # ========================================================
+
+        # Monetary policy changes - affects ALL stocks, highly material
         if article.macro_category in ['interest_rates', 'policy_rate', 'monetary_policy']:
+            # Must be actual policy decisions, not speculation
+            material_keywords = [
+                'sbp', 'state bank', 'cuts rate', 'raises rate', 'policy rate',
+                'monetary policy', 'rate decision', 'rate cut', 'rate hike',
+                'basis points', 'bps', 'discount rate'
+            ]
+            if any(keyword in text for keyword in material_keywords):
+                return True
+            # Filter out daily interest rate speculation
+            noise_keywords = ['may', 'could', 'might', 'expected to', 'likely to']
+            if any(keyword in text for keyword in noise_keywords):
+                return False
             return True
 
-        # Oil/gas prices affect energy sector
-        if article.macro_category in ['oil_prices', 'gas_prices']:
-            energy_symbols = ['PSO', 'APL', 'OGDC', 'PPL', 'POL', 'MARI', 'SSGC', 'SNGP']
-            if anomaly.symbol in energy_symbols:
+        # Major fiscal policy - budget, taxation, super tax
+        if article.macro_category in ['fiscal_policy', 'taxation']:
+            fiscal_keywords = [
+                'budget', 'super tax', 'taxation', 'tax rate', 'finance bill',
+                'tax amendment', 'capital gains', 'withholding tax', 'sales tax'
+            ]
+            if any(keyword in text for keyword in fiscal_keywords):
                 return True
 
-        # Exchange rate affects all importers/exporters
+        # Exchange rate - only major moves matter (>1% single day or new policy)
         if article.macro_category == 'usd_pkr':
-            return True
+            # Check for materiality
+            material_fx_keywords = [
+                'devaluation', 'revaluation', 'exchange rate policy',
+                'rupee crashes', 'rupee surges', 'all-time', 'record',
+                'imf', 'current account', 'reserves'
+            ]
+            if any(keyword in text for keyword in material_fx_keywords):
+                return True
 
-        # Chemical prices
+            # Check for significant % change mentioned
+            if article.price_change_mentioned and abs(article.price_change_mentioned) >= 1.0:
+                return True
+
+            # Filter daily PKR fluctuations
+            return False
+
+        # TIER 2: Sector-specific macro (only if material)
+        # ==================================================
+
+        # Oil/Gas prices - only SIGNIFICANT changes matter
+        if article.macro_category in ['oil_prices', 'gas_prices']:
+            energy_symbols = ['PSO', 'APL', 'OGDC', 'PPL', 'POL', 'MARI', 'SSGC', 'SNGP', 'HUBC', 'KAPCO']
+
+            if anomaly.symbol not in energy_symbols:
+                return False  # Not relevant to non-energy stocks
+
+            # Must be material change (>5% or structural policy)
+            material_energy_keywords = [
+                'ogra', 'petroleum levy', 'price increase', 'price cut',
+                'oil discovery', 'gas discovery', 'exploration',
+                'pricing formula', 'tariff', 'circular debt',
+                'refinery', 'pipeline', 'lpg price', 'rlng price'
+            ]
+
+            # Check for materiality signals
+            if any(keyword in text for keyword in material_energy_keywords):
+                return True
+
+            # Check for significant price change
+            if article.price_change_mentioned and abs(article.price_change_mentioned) >= 5.0:
+                return True
+
+            # Filter daily international oil price noise
+            noise_keywords = ['brent crude', 'wti', 'global oil', 'international']
+            if any(keyword in text for keyword in noise_keywords):
+                # Only relevant if it's a massive move (>10%)
+                if article.price_change_mentioned and abs(article.price_change_mentioned) >= 10.0:
+                    return True
+                return False
+
+            return False
+
+        # Chemical prices - only consistent trends or major shifts
         if article.macro_category in ['propylene_prices', 'chemical_prices']:
             chemical_symbols = ['EPCL', 'LOTTE', 'ENGRO', 'ICI', 'LOTCHEM']
-            if anomaly.symbol in chemical_symbols:
+
+            if anomaly.symbol not in chemical_symbols:
+                return False
+
+            # Must indicate structural change, not daily volatility
+            material_chemical_keywords = [
+                'capacity', 'plant', 'margin', 'feedstock',
+                'propylene shortage', 'import', 'local production',
+                'polymer prices', 'pvc prices', 'pricing mechanism'
+            ]
+
+            if any(keyword in text for keyword in material_chemical_keywords):
                 return True
 
-        # Inflation affects consumer goods
+            # Check for significant sustained change
+            trend_keywords = ['consecutive', 'months', 'sustained', 'trend', 'continuous']
+            if any(keyword in text for keyword in trend_keywords):
+                if article.price_change_mentioned and abs(article.price_change_mentioned) >= 8.0:
+                    return True
+
+            # Filter daily chemical price noise
+            return False
+
+        # Inflation - only if official data or major shift
         if article.macro_category == 'inflation':
             consumer_symbols = ['NESTLE', 'UNITY', 'UNILEVER', 'COLG', 'EFOODS']
+
+            # Inflation affects many stocks, but focus on official data
+            material_inflation_keywords = [
+                'pbs', 'pakistan bureau of statistics', 'cpi',
+                'inflation rate', 'inflation data', 'price index',
+                'food inflation', 'core inflation'
+            ]
+
+            if any(keyword in text for keyword in material_inflation_keywords):
+                return True
+
+            # Consumer sector always cares about inflation
             if anomaly.symbol in consumer_symbols:
                 return True
 
-        # Check if symbol is indirectly affected
+            return False
+
+        # TIER 3: PSX-specific events
+        # ============================
+
+        # SECP/PSX regulatory changes
+        psx_regulatory_keywords = [
+            'secp', 'psx', 'kse', 'stock exchange', 'securities',
+            'listing', 'delisting', 'trading halt', 'circuit breaker',
+            'margin', 'short selling', 'regulatory'
+        ]
+        if any(keyword in text for keyword in psx_regulatory_keywords):
+            return True
+
+        # Political/geopolitical events affecting economy
+        major_political_keywords = [
+            'election', 'government', 'imf program', 'imf bailout',
+            'political crisis', 'default risk', 'credit rating',
+            'moody', 'fitch', 's&p', 'sovereign'
+        ]
+        if any(keyword in text for keyword in major_political_keywords):
+            return True
+
+        # Check if symbol is directly mentioned as affected
         if anomaly.symbol in article.indirectly_affected_symbols:
             return True
 
+        # Default: filter out
         return False
 
     def _generate_explanation(
@@ -253,29 +497,80 @@ class NewsAnomalyCorrelator:
         news_articles: List[NewsArticle],
         correlation_score: float
     ) -> str:
-        """Generate human-readable explanation for the anomaly"""
+        """
+        Generate human-readable explanation for the anomaly
+
+        PSX Context: Provide actionable insights, not just correlation
+        """
 
         if correlation_score < 0.3:
-            return "No significant news found to explain this anomaly."
+            # Check if it's a high-severity unexplained anomaly
+            if anomaly.severity == Severity.HIGH:
+                return ("⚠️  High-severity anomaly with no clear news catalyst. "
+                       "Possible insider activity, technical factors, or unreported news.")
+            return "No material news found. May be technical/sector rotation."
 
-        # Build explanation
+        # Categorize the explanation type
+        is_company_specific = any(
+            article.primary_symbol == anomaly.symbol
+            for article in news_articles
+        )
+        is_macro_driven = any(
+            article.is_macro_news
+            for article in news_articles
+        )
+
+        # Build contextual explanation
         explanation_parts = []
 
+        # Header based on correlation strength and type
         if correlation_score >= 0.7:
-            explanation_parts.append("Strong correlation with news:")
+            if is_company_specific:
+                explanation_parts.append("🎯 Strong catalyst identified (company-specific):")
+            elif is_macro_driven:
+                explanation_parts.append("📊 Strong macro driver (sector/market-wide):")
+            else:
+                explanation_parts.append("🔗 Strong correlation with news:")
         elif correlation_score >= 0.5:
-            explanation_parts.append("Moderate correlation with news:")
+            if is_macro_driven:
+                explanation_parts.append("📊 Likely macro-driven (check sector peers):")
+            else:
+                explanation_parts.append("🔍 Moderate news correlation:")
         else:
-            explanation_parts.append("Possible correlation with news:")
+            explanation_parts.append("💭 Possible news-related (low confidence):")
 
-        # Add top news headlines
-        for article in news_articles[:2]:
+        # Add top news with context
+        for i, article in enumerate(news_articles[:2], 1):
             sentiment_str = ""
-            if article.sentiment_label:
-                sentiment_str = f" [{article.sentiment_label}]"
+            if article.sentiment_label and article.sentiment_score:
+                if abs(article.sentiment_score) > 0.5:
+                    sentiment_str = f" [{article.sentiment_label.upper()}]"
+                else:
+                    sentiment_str = f" [{article.sentiment_label}]"
+
+            # Add materiality indicator
+            news_type = "📰"
+            if article.is_macro_news:
+                news_type = "📊"
+            if article.primary_symbol == anomaly.symbol:
+                news_type = "🎯"
 
             explanation_parts.append(
-                f"  • {article.title}{sentiment_str}"
+                f"  {news_type} {article.title}{sentiment_str}"
+            )
+
+        # Add trading recommendation context
+        if correlation_score >= 0.7 and is_company_specific:
+            explanation_parts.append(
+                "\n  💡 Action: Review company fundamentals - news-driven move may create opportunity"
+            )
+        elif correlation_score >= 0.7 and is_macro_driven:
+            explanation_parts.append(
+                "\n  💡 Action: Check sector peers - macro news affects multiple stocks"
+            )
+        elif anomaly.severity == Severity.HIGH and correlation_score < 0.5:
+            explanation_parts.append(
+                "\n  ⚠️  Action: Investigate - large move without clear catalyst"
             )
 
         return "\n".join(explanation_parts)
