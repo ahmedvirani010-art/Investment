@@ -9,7 +9,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -55,16 +55,18 @@ class PSXAnomalyAgent:
     - Liquidity changes (turnover anomalies)
     """
 
-    def __init__(self, lookback_days: int = 60, z_threshold: float = 2.5):
+    def __init__(self, lookback_days: int = 60, z_threshold: float = 2.5, price_store=None):
         """
         Initialize the anomaly detection agent
 
         Args:
             lookback_days: Number of days to use for baseline calculation
             z_threshold: Z-score threshold for anomaly detection (default: 2.5σ)
+            price_store: Optional PSXPriceStore instance for reading cached price data
         """
         self.lookback_days = lookback_days
         self.z_threshold = z_threshold
+        self.price_store = price_store
 
     def _calculate_z_score(self, value: float, series: pd.Series) -> float:
         """Calculate z-score for a value against a series"""
@@ -86,7 +88,9 @@ class PSXAnomalyAgent:
 
     def _fetch_stock_data(self, symbol: str) -> pd.DataFrame:
         """
-        Fetch stock data from yfinance for PSX symbol
+        Fetch stock data for PSX symbol
+
+        Uses price store if available, otherwise falls back to yfinance.
 
         Args:
             symbol: Stock symbol (e.g., 'LUCK', 'PSO', 'HBL')
@@ -94,7 +98,16 @@ class PSXAnomalyAgent:
         Returns:
             DataFrame with stock data
         """
-        # PSX symbols need .KA suffix for yfinance
+        # Use price store if available
+        if self.price_store:
+            try:
+                df = self.price_store.get_prices(symbol, days=self.lookback_days)
+                if not df.empty:
+                    return df
+            except Exception as e:
+                print(f"Warning: Price store failed for {symbol}, falling back to yfinance: {str(e)}")
+
+        # Fallback to direct yfinance fetch
         ticker_symbol = f"{symbol}.KA"
 
         end_date = datetime.now()
