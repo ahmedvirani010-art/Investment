@@ -21,15 +21,19 @@ if "Dashboard" in analysis_type:
     c3.metric("Market Cap (B)", "₨ 125.8B", "+3.1%")
     c4.metric("P/E Ratio", "18.5x", "Neutral", delta_color="off")
     st.divider()
-    col1, col2 = st.columns(2)
+
+    # Prepare data
     days = pd.date_range(end=datetime.now(), periods=30)
+    prices = 245 + np.cumsum(np.random.randn(30) * 2)
+    volumes = np.abs(np.random.randn(30) * 5 + 12)
+
+    # Display charts in columns
+    col1, col2 = st.columns(2)
     with col1:
         st.markdown("### 📈 Price Trend")
-        prices = 245 + np.cumsum(np.random.randn(30) * 2)
         st.line_chart(pd.DataFrame({"Price": prices}, index=days))
     with col2:
         st.markdown("### 💹 Trading Volume")
-        volumes = np.abs(np.random.randn(30) * 5 + 12)
         st.bar_chart(pd.DataFrame({"Volume": volumes}, index=days))
 
 elif "Liquidity" in analysis_type:
