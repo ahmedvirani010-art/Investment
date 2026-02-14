@@ -76,7 +76,9 @@ class AnnouncementStorage:
         self.db_path = db_path
 
         # Create directory if needed
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        db_dir = os.path.dirname(db_path)
+        if db_dir:  # Only create if there's a directory component
+            os.makedirs(db_dir, exist_ok=True)
 
         # Initialize database
         self._init_database()

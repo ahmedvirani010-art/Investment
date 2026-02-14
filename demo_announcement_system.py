@@ -118,8 +118,7 @@ def create_sample_anomalies():
                 value=180.5,  # 180% increase
                 baseline=5.4,  # million shares
                 z_score=4.82,
-                description="Volume +180% from average (15.2M vs 5.4M)",
-                details={'volume': 15200000, 'avg_volume': 5400000}
+                description="Volume +180% from average (15.2M vs 5.4M)"
             ),
             Anomaly(
                 symbol='HBL',
@@ -129,8 +128,7 @@ def create_sample_anomalies():
                 value=4.8,  # 4.8% gain
                 baseline=215.50,
                 z_score=3.21,
-                description="Price +4.8% (Rs 225.80 vs Rs 215.50 avg)",
-                details={'close': 225.80, 'avg_close': 215.50}
+                description="Price +4.8% (Rs 225.80 vs Rs 215.50 avg)"
             )
         ],
         'OGDC': [
@@ -142,8 +140,7 @@ def create_sample_anomalies():
                 value=5.2,  # 5.2% gain
                 baseline=188.30,
                 z_score=3.45,
-                description="Price +5.2% (Rs 198.10 vs Rs 188.30 avg)",
-                details={'close': 198.10, 'avg_close': 188.30}
+                description="Price +5.2% (Rs 198.10 vs Rs 188.30 avg)"
             )
         ],
         'LUCK': [
@@ -155,8 +152,7 @@ def create_sample_anomalies():
                 value=145.3,  # 145% increase
                 baseline=1.2,
                 z_score=4.15,
-                description="Volume +145% from average (2.94M vs 1.2M)",
-                details={'volume': 2940000, 'avg_volume': 1200000}
+                description="Volume +145% from average (2.94M vs 1.2M)"
             )
         ],
         'PPL': [
@@ -168,8 +164,7 @@ def create_sample_anomalies():
                 value=6.8,  # 6.8% gap up
                 baseline=145.60,
                 z_score=4.52,
-                description="Opening gap +6.8% (Rs 155.50 vs Rs 145.60 prev close)",
-                details={'open': 155.50, 'prev_close': 145.60}
+                description="Opening gap +6.8% (Rs 155.50 vs Rs 145.60 prev close)"
             )
         ],
         'MCB': [
@@ -181,8 +176,7 @@ def create_sample_anomalies():
                 value=210.4,  # 210% increase
                 baseline=3.2,
                 z_score=5.18,
-                description="Volume +210% from average (9.93M vs 3.2M)",
-                details={'volume': 9930000, 'avg_volume': 3200000}
+                description="Volume +210% from average (9.93M vs 3.2M)"
             )
         ],
     }
