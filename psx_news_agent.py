@@ -3,7 +3,12 @@ PSX News Agent
 Fetches, analyzes, and stores news for Pakistan Stock Exchange
 """
 
-import feedparser
+try:
+    import feedparser
+except ImportError:
+    # Fallback to simple RSS parser if feedparser not available
+    import simple_rss_parser as feedparser
+
 import time
 import re
 from datetime import datetime, timedelta

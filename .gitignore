@@ -56,3 +56,8 @@ ENV/
 *.egg-info/
 dist/
 build/
+
+# News Agent Data
+news_data/
+*.db
+*.db-journal
