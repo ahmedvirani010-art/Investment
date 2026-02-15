@@ -33,7 +33,7 @@ class AdvancedIndicators:
         - ADX > 50: Very strong trend
 
         Args:
-            df: DataFrame with 'high', 'low', 'close' columns
+            df: DataFrame with 'high', 'low', 'close' columns (case-insensitive)
             period: ADX smoothing period (default 14)
 
         Returns:
@@ -42,13 +42,15 @@ class AdvancedIndicators:
             - di_plus: Positive Directional Indicator
             - di_minus: Negative Directional Indicator
         """
-        # Ensure column names are lowercase for consistency
+        # Handle both uppercase and lowercase column names
         df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.lower()
 
-        high = df_copy['high']
-        low = df_copy['low']
-        close = df_copy['close']
+        # Map column names (case-insensitive)
+        col_map = {col.lower(): col for col in df_copy.columns}
+
+        high = df_copy[col_map.get('high', 'high')]
+        low = df_copy[col_map.get('low', 'low')]
+        close = df_copy[col_map.get('close', 'close')]
 
         # Calculate True Range components
         high_low = high - low
@@ -59,30 +61,37 @@ class AdvancedIndicators:
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
 
         # Calculate Directional Movement
-        up_move = high - high.shift()
-        down_move = low.shift() - low
+        up_move = high.diff()
+        down_move = -low.diff()
 
         # Positive and Negative Directional Movement
-        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
-        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+        plus_dm = pd.Series(np.where((up_move > down_move) & (up_move > 0), up_move, 0), index=df_copy.index)
+        minus_dm = pd.Series(np.where((down_move > up_move) & (down_move > 0), down_move, 0), index=df_copy.index)
 
         # Smooth the True Range and Directional Movements using EMA
-        atr = tr.ewm(span=period, adjust=False).mean()
-        plus_dm_smooth = pd.Series(plus_dm).ewm(span=period, adjust=False).mean()
-        minus_dm_smooth = pd.Series(minus_dm).ewm(span=period, adjust=False).mean()
+        # Add small epsilon to avoid division by zero
+        atr = tr.ewm(span=period, adjust=False).mean() + 1e-10
+        plus_dm_smooth = plus_dm.ewm(span=period, adjust=False).mean()
+        minus_dm_smooth = minus_dm.ewm(span=period, adjust=False).mean()
 
         # Calculate Directional Indicators
         plus_di = 100 * (plus_dm_smooth / atr)
         minus_di = 100 * (minus_dm_smooth / atr)
 
         # Calculate DX (Directional Index)
-        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        # Avoid division by zero
+        di_sum = plus_di + minus_di
+        dx = 100 * abs(plus_di - minus_di) / di_sum.replace(0, np.nan)
 
         # Calculate ADX (smoothed DX)
         adx = dx.ewm(span=period, adjust=False).mean()
 
-        # Return latest values
-        return adx.iloc[-1], plus_di.iloc[-1], minus_di.iloc[-1]
+        # Return latest values, handle NaN
+        adx_val = adx.iloc[-1] if not pd.isna(adx.iloc[-1]) else 0.0
+        plus_di_val = plus_di.iloc[-1] if not pd.isna(plus_di.iloc[-1]) else 0.0
+        minus_di_val = minus_di.iloc[-1] if not pd.isna(minus_di.iloc[-1]) else 0.0
+
+        return float(adx_val), float(plus_di_val), float(minus_di_val)
 
     @staticmethod
     def compute_hurst_exponent(prices: pd.Series, window: int = 100) -> float:
@@ -165,7 +174,7 @@ class AdvancedIndicators:
         - Fast RSI crossing below smooth: Bearish momentum
 
         Args:
-            df: DataFrame with 'close' column
+            df: DataFrame with 'close' column (case-insensitive)
             period: RSI calculation period (default 14)
             smooth_period: Smoothing period for RSI (default 3)
 
@@ -173,9 +182,8 @@ class AdvancedIndicators:
             Tuple of (rsi_fast, rsi_smooth)
         """
         df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.lower()
-
-        close = df_copy['close']
+        col_map = {col.lower(): col for col in df_copy.columns}
+        close = df_copy[col_map.get('close', 'close')]
         delta = close.diff()
 
         # Separate gains and losses
@@ -220,11 +228,11 @@ class AdvancedIndicators:
             - atr_ratio: Current ATR / Average ATR
         """
         df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.lower()
+        col_map = {col.lower(): col for col in df_copy.columns}
 
-        high = df_copy['high']
-        low = df_copy['low']
-        close = df_copy['close']
+        high = df_copy[col_map.get('high', 'high')]
+        low = df_copy[col_map.get('low', 'low')]
+        close = df_copy[col_map.get('close', 'close')]
 
         # Calculate True Range
         high_low = high - low
@@ -270,9 +278,8 @@ class AdvancedIndicators:
             float: Volume momentum ratio (current / average)
         """
         df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.lower()
-
-        volume = df_copy['volume']
+        col_map = {col.lower(): col for col in df_copy.columns}
+        volume = df_copy[col_map.get('volume', 'volume')]
 
         # Average volume over period
         avg_volume = volume.rolling(window=period).mean()
@@ -306,9 +313,8 @@ class AdvancedIndicators:
             Returns None for periods with insufficient data
         """
         df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.lower()
-
-        close = df_copy['close']
+        col_map = {col.lower(): col for col in df_copy.columns}
+        close = df_copy[col_map.get('close', 'close')]
 
         # Calculate returns for different periods
         ret_1m = (close.iloc[-1] / close.iloc[-22] - 1) if len(close) >= 22 else None
@@ -335,9 +341,8 @@ class AdvancedIndicators:
             float: Skewness coefficient
         """
         df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.lower()
-
-        close = df_copy['close']
+        col_map = {col.lower(): col for col in df_copy.columns}
+        close = df_copy[col_map.get('close', 'close')]
         returns = close.pct_change()
 
         skew = returns.rolling(window=window).skew()
@@ -362,9 +367,8 @@ class AdvancedIndicators:
             float: Excess kurtosis (kurtosis - 3)
         """
         df_copy = df.copy()
-        df_copy.columns = df_copy.columns.str.lower()
-
-        close = df_copy['close']
+        col_map = {col.lower(): col for col in df_copy.columns}
+        close = df_copy[col_map.get('close', 'close')]
         returns = close.pct_change()
 
         kurt = returns.rolling(window=window).kurt()
