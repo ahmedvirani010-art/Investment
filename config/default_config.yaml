@@ -1,0 +1,58 @@
+indicators:
+  rsi_period: 14
+  rsi_overbought: 70.0
+  rsi_oversold: 30.0
+  rsi_smooth_period: 3
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  sma_short: 20
+  sma_medium: 50
+  sma_long: 200
+  ema_fast: 8
+  ema_medium: 21
+  ema_long: 55
+  adx_period: 14
+  adx_threshold: 25.0
+  bb_period: 20
+  bb_std: 2.0
+  stochastic_k_period: 14
+  stochastic_d_period: 3
+  stochastic_overbought: 80.0
+  stochastic_oversold: 20.0
+  atr_period: 14
+  atr_lookback: 20
+  volume_period: 20
+  hurst_window: 100
+  zscore_window: 20
+  skew_window: 63
+  kurt_window: 63
+strategies:
+  trend_following_weight: 0.25
+  mean_reversion_weight: 0.2
+  momentum_weight: 0.2
+  volatility_weight: 0.15
+  statistical_arb_weight: 0.2
+  trend_min_adx: 25.0
+  trend_ema_alignment_threshold: 0.5
+  mean_reversion_zscore_threshold: 2.0
+  mean_reversion_bb_threshold: 0.2
+  hurst_mean_reversion_threshold: 0.5
+  momentum_min_return: 0.05
+  momentum_min_volume_ratio: 1.5
+  momentum_1m_weight: 0.4
+  momentum_3m_weight: 0.3
+  momentum_6m_weight: 0.3
+  volatility_high_regime_threshold: 1.5
+  volatility_low_regime_threshold: 0.7
+  stat_arb_hurst_threshold: 0.4
+  stat_arb_skew_threshold: 1.0
+  strong_signal_threshold: 0.75
+  moderate_signal_threshold: 0.5
+  ensemble_bullish_threshold: 0.3
+  ensemble_bearish_threshold: -0.3
+use_strategy_ensemble: true
+min_data_days: 250
+enable_backtesting: false
+backtest_window_days: 60
+backtest_forward_days: 5
