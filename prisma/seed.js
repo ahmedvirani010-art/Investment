@@ -56,6 +56,46 @@ const stocks = [
   { ticker: "FFL", name: "Friesland Campina Engro Pakistan", sector: "Food & Personal Care", marketCap: "Small" },
 ];
 
+const agents = [
+  {
+    name: "Anomaly Detection Agent",
+    description: "Monitors PSX for unusual trading patterns and price movements using statistical analysis",
+    type: "anomaly",
+    config: JSON.stringify({
+      lookback_days: 60,
+      z_threshold: 2.5
+    }),
+    isActive: true
+  },
+  {
+    name: "News Agent",
+    description: "Fetches, analyzes, and stores news for Pakistan Stock Exchange from multiple sources",
+    type: "news",
+    config: JSON.stringify({
+      hours: 48
+    }),
+    isActive: true
+  },
+  {
+    name: "Technical Analysis Agent",
+    description: "Computes standard technical indicators (RSI, MACD, SMA, Bollinger Bands) on stored price data",
+    type: "technical",
+    config: JSON.stringify({
+      days: 250
+    }),
+    isActive: true
+  },
+  {
+    name: "Announcement Scraper",
+    description: "Scrapes and classifies PSX announcements for material events and disclosures",
+    type: "announcement",
+    config: JSON.stringify({
+      days: 7
+    }),
+    isActive: true
+  }
+];
+
 async function main() {
   console.log("Seeding PSX stocks...");
 
@@ -68,6 +108,18 @@ async function main() {
   }
 
   console.log(`Seeded ${stocks.length} stocks.`);
+
+  console.log("Seeding agents...");
+
+  for (const agent of agents) {
+    await prisma.agent.upsert({
+      where: { name: agent.name },
+      update: {},
+      create: agent,
+    });
+  }
+
+  console.log(`Seeded ${agents.length} agents.`);
 }
 
 main()

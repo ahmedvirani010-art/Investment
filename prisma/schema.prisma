@@ -127,3 +127,51 @@ model NoteTag {
 
   @@unique([noteId, tagId])
 }
+
+model Agent {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  type        String
+  isActive    Boolean  @default(true)
+  config      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  runs AgentRun[]
+}
+
+model AgentRun {
+  id          String   @id @default(cuid())
+  agentId     String
+  status      String   @default("pending")
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  duration    Int?
+  parameters  String?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  results AgentResult[]
+
+  @@index([agentId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model AgentResult {
+  id        String   @id @default(cuid())
+  runId     String
+  symbol    String?
+  data      String
+  resultType String
+  severity  String?
+  createdAt DateTime @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([symbol])
+  @@index([resultType])
+}
