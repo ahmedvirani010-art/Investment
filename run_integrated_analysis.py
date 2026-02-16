@@ -21,6 +21,14 @@ except ImportError:
     DIVERGENCE_AVAILABLE = False
     PSXDivergenceDetector = None
 
+# Optional pattern recognition
+try:
+    from psx_pattern_recognizer import PSXPatternRecognizer
+    PATTERN_AVAILABLE = True
+except ImportError:
+    PATTERN_AVAILABLE = False
+    PSXPatternRecognizer = None
+
 import argparse
 
 
@@ -35,7 +43,8 @@ def run_full_analysis(
     ta_lookback: int = 250,
     save_technicals: bool = False,
     multi_timeframe: bool = False,
-    skip_divergences: bool = False
+    skip_divergences: bool = False,
+    skip_patterns: bool = False
 ):
     """
     Run complete integrated analysis
@@ -52,6 +61,7 @@ def run_full_analysis(
         save_technicals: Persist computed indicators to database
         multi_timeframe: Enable multi-timeframe analysis (daily + weekly)
         skip_divergences: Skip divergence detection (enabled by default)
+        skip_patterns: Skip pattern recognition (enabled by default)
     """
 
     print("="*100)
@@ -141,9 +151,18 @@ def run_full_analysis(
             divergence_detector = PSXDivergenceDetector(lookback_days=30, window=5, min_prominence=0.02)
             print(f"🔍 Divergence detection enabled")
 
+        # Initialize pattern recognizer if available and not skipped
+        pattern_recognizer = None
+        if not skip_patterns and PATTERN_AVAILABLE:
+            pattern_recognizer = PSXPatternRecognizer(
+                hs_lookback_days=60, hs_min_pattern_days=20,
+                dt_lookback_days=50, dt_max_pattern_days=40
+            )
+            print(f"🔍 Pattern recognition enabled")
+
         if multi_timeframe:
             print(f"🔍 Computing multi-timeframe analysis (daily + weekly) for {len(symbols)} stocks...")
-            tech_agent = PSXTechnicalAgent(price_store, divergence_detector)
+            tech_agent = PSXTechnicalAgent(price_store, divergence_detector, pattern_recognizer)
 
             # Analyze each symbol with multi-timeframe
             for symbol in symbols:
@@ -166,7 +185,7 @@ def run_full_analysis(
             print(f"   High confirmation (≥80%): {high_conf}/{len(symbols)}")
         else:
             print(f"🔍 Computing technical indicators for {len(symbols)} stocks...")
-            tech_agent = PSXTechnicalAgent(price_store, divergence_detector)
+            tech_agent = PSXTechnicalAgent(price_store, divergence_detector, pattern_recognizer)
             technical_snapshots = tech_agent.analyze_batch(symbols)
 
             # Count signals
@@ -350,6 +369,62 @@ def print_technical_summary(technical_snapshots, anomalies_report, multi_tf_snap
         print(f"\n🔄 DIVERGENCES DETECTED: None")
         print("="*100)
 
+    # Chart patterns detected
+    pattern_stocks = [(symbol, snap) for symbol, snap in technical_snapshots.items()
+                      if hasattr(snap, 'patterns') and snap.patterns]
+
+    if pattern_stocks:
+        print(f"\n📐 CHART PATTERNS")
+        print("="*100)
+
+        # Group patterns by status
+        forming_patterns = []
+        confirmed_patterns = []
+
+        for symbol, snap in pattern_stocks:
+            for pattern in snap.patterns:
+                if pattern.status.value == "Confirmed":
+                    confirmed_patterns.append((symbol, pattern))
+                elif pattern.status.value == "Forming":
+                    forming_patterns.append((symbol, pattern))
+
+        # Display confirmed patterns (breakouts)
+        if confirmed_patterns:
+            print(f"\n✅ CONFIRMED PATTERNS (Breakouts):")
+            for symbol, pattern in confirmed_patterns:
+                # Emoji based on pattern type
+                if pattern.pattern_type.value in ["Head and Shoulders", "Double Top"]:
+                    emoji = "📉"  # Bearish
+                    change = ((pattern.target_price / pattern.neckline) - 1) * 100
+                else:
+                    emoji = "📈"  # Bullish
+                    change = ((pattern.target_price / pattern.neckline) - 1) * 100
+
+                print(f"\n   {emoji} {symbol:8s} {pattern.pattern_type.value}")
+                print(f"              Neckline: Rs {pattern.neckline:.2f}")
+                print(f"              Target: Rs {pattern.target_price:.2f} ({change:+.1f}%)")
+                print(f"              Period: {pattern.start_date} to {pattern.end_date}")
+
+        # Display forming patterns (watch list)
+        if forming_patterns:
+            print(f"\n🔶 FORMING PATTERNS (Watch for breakout):")
+            for symbol, pattern in forming_patterns:
+                if pattern.pattern_type.value in ["Head and Shoulders", "Double Top"]:
+                    emoji = "📉"
+                    potential = "Bearish"
+                else:
+                    emoji = "📈"
+                    potential = "Bullish"
+
+                print(f"\n   {emoji} {symbol:8s} {pattern.pattern_type.value} ({potential})")
+                print(f"              Neckline: Rs {pattern.neckline:.2f} (watch for break)")
+                print(f"              Target if confirmed: Rs {pattern.target_price:.2f}")
+
+        print("\n" + "="*100)
+    else:
+        print(f"\n📐 CHART PATTERNS: None detected")
+        print("="*100)
+
     # Overbought stocks (RSI > 70)
     overbought = [(symbol, snap) for symbol, snap in technical_snapshots.items()
                   if 'RSI' in snap.indicator_values and snap.indicator_values['RSI'] >= 70]
@@ -506,6 +581,12 @@ def main():
         help='Skip divergence detection (enabled by default)'
     )
 
+    parser.add_argument(
+        '--skip-patterns',
+        action='store_true',
+        help='Skip pattern recognition (enabled by default)'
+    )
+
     args = parser.parse_args()
 
     run_full_analysis(
@@ -519,7 +600,8 @@ def main():
         ta_lookback=args.ta_lookback,
         save_technicals=args.save_technicals,
         multi_timeframe=args.multi_timeframe,
-        skip_divergences=args.skip_divergences
+        skip_divergences=args.skip_divergences,
+        skip_patterns=args.skip_patterns
     )
 
 

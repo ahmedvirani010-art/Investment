@@ -18,6 +18,14 @@ except ImportError:
     DIVERGENCE_AVAILABLE = False
     Divergence = None
 
+# Optional import for pattern recognition
+try:
+    from psx_pattern_recognizer import ChartPattern
+    PATTERN_AVAILABLE = True
+except ImportError:
+    PATTERN_AVAILABLE = False
+    ChartPattern = None
+
 
 class SignalType(Enum):
     """Type of technical signal"""
@@ -58,6 +66,7 @@ class TechnicalSnapshot:
     confidence: float = 0.0  # 0.0-1.0 based on signal agreement
     indicator_values: Dict[str, float] = field(default_factory=dict)
     divergences: List = field(default_factory=list)  # List[Divergence] if available
+    patterns: List = field(default_factory=list)  # List[ChartPattern] if available
 
 
 @dataclass
@@ -83,16 +92,18 @@ class PSXTechnicalAgent:
     - Volume: OBV
     """
 
-    def __init__(self, price_store, divergence_detector=None):
+    def __init__(self, price_store, divergence_detector=None, pattern_recognizer=None):
         """
         Initialize technical agent
 
         Args:
             price_store: PSXPriceStore instance for reading price data
             divergence_detector: Optional PSXDivergenceDetector instance
+            pattern_recognizer: Optional PSXPatternRecognizer instance
         """
         self.price_store = price_store
         self.divergence_detector = divergence_detector
+        self.pattern_recognizer = pattern_recognizer
 
     def analyze_symbol(self, symbol: str) -> TechnicalSnapshot:
         """
@@ -214,6 +225,53 @@ class PSXTechnicalAgent:
             except Exception as e:
                 print(f"  Warning: Error detecting divergences for {symbol}: {str(e)}")
 
+        # Pattern recognition (if recognizer is available)
+        patterns = []
+        if self.pattern_recognizer and PATTERN_AVAILABLE:
+            try:
+                patterns = self.pattern_recognizer.detect_all_patterns(symbol, df)
+
+                # Convert patterns to signals for aggregation
+                for pattern in patterns:
+                    # Only add signals for confirmed patterns (more weight)
+                    if pattern.status.value == "Confirmed":
+                        # Bearish patterns (H&S, Double Top) are overbought-like signals
+                        if pattern.pattern_type.value in ["Head and Shoulders", "Double Top"]:
+                            signal_type = SignalType.BEARISH
+                            signal_strength = SignalStrength.STRONG
+                        # Bullish patterns (Inverse H&S, Double Bottom) are oversold-like signals
+                        else:
+                            signal_type = SignalType.BULLISH
+                            signal_strength = SignalStrength.STRONG
+
+                        signals.append(TechnicalSignal(
+                            symbol=symbol,
+                            date=latest_date,
+                            indicator="Pattern",
+                            signal_type=signal_type,
+                            strength=signal_strength,
+                            value=0.0,  # Patterns don't have a single value
+                            description=f"{pattern.pattern_type.value} ({pattern.status.value})"
+                        ))
+                    # Forming patterns get weaker signal weight
+                    elif pattern.status.value == "Forming":
+                        if pattern.pattern_type.value in ["Head and Shoulders", "Double Top"]:
+                            signal_type = SignalType.BEARISH
+                        else:
+                            signal_type = SignalType.BULLISH
+
+                        signals.append(TechnicalSignal(
+                            symbol=symbol,
+                            date=latest_date,
+                            indicator="Pattern",
+                            signal_type=signal_type,
+                            strength=SignalStrength.WEAK,
+                            value=0.0,
+                            description=f"{pattern.pattern_type.value} ({pattern.status.value})"
+                        ))
+            except Exception as e:
+                print(f"  Warning: Error detecting patterns for {symbol}: {str(e)}")
+
         # Aggregate signals into overall bias
         overall_bias, confidence = self._aggregate_signals(signals)
 
@@ -224,7 +282,8 @@ class PSXTechnicalAgent:
             overall_bias=overall_bias,
             confidence=confidence,
             indicator_values=indicator_values,
-            divergences=divergences
+            divergences=divergences,
+            patterns=patterns
         )
 
     def analyze_batch(self, symbols: List[str]) -> Dict[str, TechnicalSnapshot]:

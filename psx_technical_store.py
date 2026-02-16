@@ -142,6 +142,34 @@ class TechnicalStore:
                 ON divergences(divergence_type)
             ''')
 
+            # Chart patterns table (H&S, double tops/bottoms)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS chart_patterns (
+                    symbol TEXT NOT NULL,
+                    pattern_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    key_points TEXT,
+                    neckline REAL,
+                    target_price REAL,
+                    description TEXT,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (symbol, pattern_type, start_date)
+                )
+            ''')
+
+            # Create indexes for patterns
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_pattern_symbol
+                ON chart_patterns(symbol)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_pattern_status
+                ON chart_patterns(status)
+            ''')
+
             conn.commit()
 
     def save_snapshot(self, snapshot: TechnicalSnapshot):
@@ -220,6 +248,10 @@ class TechnicalStore:
         # Also save divergences if present
         if hasattr(snapshot, 'divergences') and snapshot.divergences:
             self._save_divergences(snapshot)
+
+        # Also save patterns if present
+        if hasattr(snapshot, 'patterns') and snapshot.patterns:
+            self._save_patterns(snapshot)
 
     def get_snapshot(self, symbol: str, date: str = None) -> Optional[TechnicalSnapshot]:
         """
@@ -723,6 +755,124 @@ class TechnicalStore:
                     WHERE d.divergence_type LIKE 'Bearish%'
                     ORDER BY d.symbol
                 ''')
+
+            return cursor.fetchall()
+
+    # ===================================================================
+    # PATTERN STORAGE
+    # ===================================================================
+
+    def _save_patterns(self, snapshot: TechnicalSnapshot):
+        """
+        Save chart patterns from a snapshot
+
+        Args:
+            snapshot: TechnicalSnapshot with patterns
+        """
+        if not hasattr(snapshot, 'patterns') or not snapshot.patterns:
+            return
+
+        computed_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            for pattern in snapshot.patterns:
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO chart_patterns
+                        (symbol, pattern_type, status, start_date, end_date,
+                         key_points, neckline, target_price, description, computed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        pattern.symbol,
+                        pattern.pattern_type.value,
+                        pattern.status.value,
+                        pattern.start_date,
+                        pattern.end_date,
+                        json.dumps(pattern.key_points),
+                        pattern.neckline,
+                        pattern.target_price,
+                        pattern.description,
+                        computed_at
+                    ))
+                except Exception as e:
+                    print(f"  Warning: Error saving pattern for {snapshot.symbol}: {str(e)}")
+
+            conn.commit()
+
+    def get_patterns(self, symbol: str, days: int = 60) -> List[Tuple]:
+        """
+        Get chart patterns for a symbol
+
+        Args:
+            symbol: Stock symbol
+            days: Number of days to look back
+
+        Returns:
+            List of tuples: (pattern_type, status, start_date, end_date, neckline, target_price, description)
+        """
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT pattern_type, status, start_date, end_date, neckline, target_price, description
+                FROM chart_patterns
+                WHERE symbol = ? AND start_date >= ?
+                ORDER BY start_date DESC
+            ''', (symbol, cutoff_date))
+
+            return cursor.fetchall()
+
+    def get_confirmed_patterns(self, days: int = 7) -> List[Tuple[str, str, str, str, float]]:
+        """
+        Get recently confirmed patterns (breakouts)
+
+        Args:
+            days: Number of days to look back
+
+        Returns:
+            List of tuples: (symbol, pattern_type, start_date, end_date, target_price)
+        """
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT symbol, pattern_type, start_date, end_date, target_price
+                FROM chart_patterns
+                WHERE status = 'Confirmed' AND computed_at >= ?
+                ORDER BY computed_at DESC
+            ''', (cutoff_date,))
+
+            return cursor.fetchall()
+
+    def get_forming_patterns(self) -> List[Tuple[str, str, str, float, float]]:
+        """
+        Get patterns that are currently forming (not yet confirmed)
+
+        Returns:
+            List of tuples: (symbol, pattern_type, start_date, neckline, target_price)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # Get latest forming patterns for each symbol
+            cursor.execute('''
+                SELECT p.symbol, p.pattern_type, p.start_date, p.neckline, p.target_price
+                FROM chart_patterns p
+                INNER JOIN (
+                    SELECT symbol, pattern_type, MAX(computed_at) as max_computed
+                    FROM chart_patterns
+                    WHERE status = 'Forming'
+                    GROUP BY symbol, pattern_type
+                ) latest ON p.symbol = latest.symbol
+                         AND p.pattern_type = latest.pattern_type
+                         AND p.computed_at = latest.max_computed
+                WHERE p.status = 'Forming'
+                ORDER BY p.symbol, p.pattern_type
+            ''')
 
             return cursor.fetchall()
 
