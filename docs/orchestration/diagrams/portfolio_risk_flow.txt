@@ -1,0 +1,352 @@
+# Portfolio & Risk Management Flow
+
+## Trade Execution with Risk Validation
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│            VALIDATED TRADE EXECUTION WORKFLOW                    │
+│                    (with Saga Pattern)                           │
+└──────────────────────────────────────────────────────────────────┘
+
+User submits trade:
+  Symbol: OGDC, Quantity: 1000, Price: 125.50
+        │
+        ▼
+┌─────────────────────────────────────┐
+│  1. VALIDATE RISK                   │
+│     PSXRiskAgent.validate_trade()   │
+└────────┬────────────────────────────┘
+         │
+         ├──► Approved? ──────────────┐
+         │                            │
+         └──► Rejected? ──────────────┼───► Block trade
+                                      │     Return error
+                                      ▼
+                             ┌────────────────────────┐
+                             │  2. RESERVE CASH       │
+                             │  Portfolio.reserve()   │
+                             │  Compensation:         │
+                             │    release_cash()      │
+                             └────────┬───────────────┘
+                                      │
+                                      ▼
+                             ┌────────────────────────┐
+                             │  3. ADD POSITION       │
+                             │  Portfolio.add()       │
+                             │  Compensation:         │
+                             │    remove_position()   │
+                             └────────┬───────────────┘
+                                      │
+                                      ├──► Success ────┐
+                                      │                │
+                                      └──► Failure ────┼──► SAGA ROLLBACK
+                                                       │     Execute compensations
+                                                       │     in reverse order
+                                                       ▼
+                                      ┌────────────────────────┐
+                                      │  4. UPDATE PORTFOLIO   │
+                                      │  Calculate metrics     │
+                                      │  Compensation:         │
+                                      │    revert_metrics()    │
+                                      └────────┬───────────────┘
+                                               │
+                                               ▼
+                                      ┌────────────────────────┐
+                                      │  5. CHECK POST-TRADE   │
+                                      │     RISK               │
+                                      │  Risk.check_portfolio  │
+                                      └────────┬───────────────┘
+                                               │
+                                               ▼
+                                         Trade Complete
+                                         Emit events
+```
+
+## Risk Validation Process
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  PSXRiskAgent.validate_trade()                             │
+└────────────────────────────────────────────────────────────┘
+
+Input: symbol, quantity, entry_price
+        │
+        ▼
+┌──────────────────────────┐
+│  1. Calculate trade value│
+│     value = qty × price  │
+└────────┬─────────────────┘
+         │
+         ▼
+┌─────────────────────────────────┐
+│  2. Get current portfolio state │
+│     • Total value               │
+│     • Cash available            │
+│     • Existing positions        │
+│     • Sector allocations        │
+└────────┬────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────┐
+│  3. Check Rule: max_position_size    │
+│     Limit: 10% of portfolio          │
+│     Proposed: trade_value / total    │
+│     └─ Violation? → REJECT           │
+└────────┬─────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────┐
+│  4. Check Rule: max_risk_per_trade   │
+│     Limit: 2% of portfolio           │
+│     └─ Violation? → REJECT           │
+└────────┬─────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────┐
+│  5. Check Rule: sector_allocation    │
+│     Limit: 50% per sector            │
+│     Current: Energy = 45%            │
+│     After trade: Energy = 48%        │
+│     └─ Violation? → REJECT           │
+└────────┬─────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────┐
+│  6. Check Rule: min_cash_reserve     │
+│     Limit: 20% cash                  │
+│     After trade: cash = 22%          │
+│     └─ Violation? → REJECT           │
+└────────┬─────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────┐
+│  7. Check Rule: reward_to_risk       │
+│     Limit: Min 2:1 ratio             │
+│     └─ Violation? → REJECT           │
+└────────┬─────────────────────────────┘
+         │
+         ▼
+    All checks passed
+         │
+         ▼
+    ┌─────────────────┐
+    │ TRADE APPROVED  │
+    └─────────────────┘
+```
+
+## Portfolio Risk Monitoring
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  PSXRiskAgent.check_portfolio_risk()                       │
+└────────────────────────────────────────────────────────────┘
+
+Trigger: Hourly OR on PORTFOLIO_UPDATED event
+        │
+        ▼
+┌──────────────────────────┐
+│  1. Get Portfolio State  │
+│     • Positions          │
+│     • Cash               │
+│     • Current prices     │
+└────────┬─────────────────┘
+         │
+         ▼
+┌──────────────────────────────────┐
+│  2. Calculate Concentration      │
+│     • Max position %             │
+│     • Top 3 positions %          │
+│     • Sector distribution        │
+│     • Herfindahl Index           │
+└────────┬─────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────┐
+│  3. Calculate Volatility         │
+│     • Portfolio std deviation    │
+│     • Sharpe ratio               │
+│     • Max drawdown               │
+└────────┬─────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────┐
+│  4. Calculate VaR                │
+│     • VaR 95%                    │
+│     • VaR 99%                    │
+│     • CVaR 95%                   │
+└────────┬─────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────┐
+│  5. Check Violations             │
+│     • Sector > 50%?              │
+│     • Position > 10%?            │
+│     • Cash < 20%?                │
+│     • Drawdown > 20%?            │
+└────────┬─────────────────────────┘
+         │
+         ├──► Violations found ──────┐
+         │                           │
+         └──► No violations ─────────┼──► Emit RISK_CHECK_COMPLETE
+                                     │
+                                     ▼
+                            ┌────────────────────┐
+                            │  Emit RISK_VIOLATION│
+                            │  Alert system       │
+                            │  Block new trades   │
+                            └─────────────────────┘
+```
+
+## Portfolio P&L Calculation
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  PSXPortfolioAgent.get_pnl()                               │
+└────────────────────────────────────────────────────────────┘
+
+        │
+        ▼
+┌──────────────────────────┐
+│  1. Get Open Positions   │
+│     FROM positions       │
+│     WHERE status='open'  │
+└────────┬─────────────────┘
+         │
+         ▼
+┌────────────────────────────────────┐
+│  2. Get Current Prices             │
+│     FOR each symbol                │
+│     FROM price_data                │
+│     WHERE date = MAX(date)         │
+└────────┬───────────────────────────┘
+         │
+         ▼
+┌───────────────────────────────────────────────┐
+│  3. Calculate Unrealized P&L                  │
+│     FOR each position:                        │
+│       current_value = qty × current_price     │
+│       entry_value = qty × entry_price         │
+│       unrealized_pnl = current_value - entry  │
+│       unrealized_pct = pnl / entry × 100      │
+└────────┬──────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────┐
+│  4. Get Closed Positions │
+│     Calculate realized   │
+│     P&L from history     │
+└────────┬─────────────────┘
+         │
+         ▼
+┌──────────────────────────────────┐
+│  5. Aggregate Results            │
+│     • Total portfolio value      │
+│     • Total P&L                  │
+│     • Return %                   │
+│     • Win rate                   │
+│     • Sector allocation          │
+└────────┬─────────────────────────┘
+         │
+         ▼
+    Return P&L Report
+```
+
+## Risk Event Flow
+
+```
+Portfolio Update Triggers:
+  • Position opened
+  • Position closed
+  • Price data updated
+        │
+        ▼
+┌────────────────────────┐
+│  PORTFOLIO_UPDATED     │
+│  event emitted         │
+└────────┬───────────────┘
+         │
+         ▼
+┌────────────────────────┐
+│  Risk Check Workflow   │
+│  auto-triggered        │
+└────────┬───────────────┘
+         │
+         ▼
+┌────────────────────────┐
+│  Calculate risk        │
+│  metrics               │
+└────────┬───────────────┘
+         │
+         ├──► Violations? ─────────┐
+         │                         │
+         │                         ▼
+         │              ┌──────────────────────┐
+         │              │  RISK_VIOLATION      │
+         │              │  event emitted       │
+         │              └────────┬─────────────┘
+         │                       │
+         │                       ▼
+         │              ┌──────────────────────┐
+         │              │  Alert System        │
+         │              │  • Email             │
+         │              │  • Slack             │
+         │              │  • Block trades      │
+         │              └──────────────────────┘
+         │
+         └──► No violations ──────┐
+                                  │
+                                  ▼
+                         ┌────────────────────┐
+                         │  RISK_CHECK_       │
+                         │  COMPLETE          │
+                         │  Log success       │
+                         └────────────────────┘
+```
+
+## Saga Rollback Example
+
+```
+Trade Execution Failure:
+
+Forward Actions:           Executed     Compensation
+────────────────────────────────────────────────────
+1. Validate Risk          ✓ Success    (none needed)
+2. Reserve Cash           ✓ Success    release_cash()
+3. Add Position           ✓ Success    remove_position()
+4. Update Portfolio       ✗ FAILED     ─────┐
+5. Check Post-Trade Risk  (not run)          │
+                                              │
+                          SAGA ROLLBACK ◄─────┘
+                                              │
+                                              ▼
+Compensations (reverse order):
+────────────────────────────────────────────────────
+3. Compensate: remove_position()           ✓
+2. Compensate: release_cash()              ✓
+1. Compensate: log_failure()               ✓
+
+Result: Portfolio unchanged (safe rollback)
+```
+
+## Risk Rule Configuration
+
+```
+Default Risk Rules:
+┌──────────────────────────────────────────────────┐
+│  max_risk_per_trade:       2%    (of portfolio) │
+│  max_position_size:        10%   (of portfolio) │
+│  max_sector_allocation:    50%   (per sector)   │
+│  min_reward_to_risk:       2.0   (2:1 ratio)    │
+│  min_cash_reserve:         20%   (of total)     │
+│  max_portfolio_leverage:   0.0   (no margin)    │
+│  max_drawdown_limit:       20%   (stop trading) │
+└──────────────────────────────────────────────────┘
+
+Custom Configuration:
+  risk_agent = PSXRiskAgent(
+      config=RiskConfiguration(
+          max_position_size=0.08,  # More conservative
+          max_sector_allocation=0.40
+      )
+  )
+```

@@ -1,0 +1,354 @@
+# Agent Interactions Diagram
+
+## 9-Agent Ecosystem
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                    PSX AGENT ECOSYSTEM                             │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │              DATA COLLECTION LAYER                           │ │
+│  │                                                              │ │
+│  │  ┌────────────────┐  ┌──────────────┐  ┌────────────────┐  │ │
+│  │  │   Liquidity    │  │ Price Store  │  │  News Agent    │  │ │
+│  │  │   Screener     │  │              │  │                │  │ │
+│  │  │                │  │              │  │                │  │ │
+│  │  │  • screen_     │  │  • update_   │  │  • fetch_news()│  │ │
+│  │  │    stocks()    │  │    prices()  │  │  • search_     │  │ │
+│  │  │                │  │  • get_      │  │    news()      │  │ │
+│  │  │                │  │    prices()  │  │                │  │ │
+│  │  └───────┬────────┘  └──────┬───────┘  └───────┬────────┘  │ │
+│  │          │                  │                   │           │ │
+│  │          │ symbols          │ OHLCV data        │ articles  │ │
+│  └──────────┼──────────────────┼───────────────────┼───────────┘ │
+│             │                  │                   │             │
+│             ▼                  ▼                   ▼             │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │              ANALYSIS LAYER                                  │ │
+│  │                                                              │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │ │
+│  │  │  Technical   │  │ Fundamental  │  │   Anomaly    │     │ │
+│  │  │   Analysis   │  │   Analysis   │  │  Detection   │     │ │
+│  │  │              │  │              │  │              │     │ │
+│  │  │  • analyze_  │  │  • analyze_  │  │  • detect_   │     │ │
+│  │  │    symbol()  │  │    fundamentals  anomalies() │     │ │
+│  │  │              │  │                  │              │     │ │
+│  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘     │ │
+│  │         │                 │                  │             │ │
+│  │         │ indicators      │ metrics          │ anomalies   │ │
+│  │         └─────────────────┴──────────────────┴───┐         │ │
+│  │                                                   │         │ │
+│  │                          ┌────────────────────────┘         │ │
+│  │                          ▼                                  │ │
+│  │                  ┌───────────────┐                          │ │
+│  │                  │  Correlator   │                          │ │
+│  │                  │               │                          │ │
+│  │                  │  • correlate_ │                          │ │
+│  │                  │    anomalies()│                          │ │
+│  │                  └───────┬───────┘                          │ │
+│  │                          │                                  │ │
+│  │                          │ correlations                     │ │
+│  └──────────────────────────┼──────────────────────────────────┘ │
+│                             │                                    │
+│                             ▼                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │         PORTFOLIO & RISK LAYER                               │ │
+│  │                                                              │ │
+│  │  ┌─────────────────────┐       ┌─────────────────────┐     │ │
+│  │  │  Portfolio Agent    │◄─────►│    Risk Agent       │     │ │
+│  │  │                     │ validate  │                     │     │ │
+│  │  │  • add_position()   │       │  • validate_trade() │     │ │
+│  │  │  • close_position() │       │  • check_portfolio_ │     │ │
+│  │  │  • get_pnl()        │       │    risk()           │     │ │
+│  │  └─────────────────────┘       └─────────────────────┘     │ │
+│  │                                                              │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+## Data Dependencies
+
+```
+┌─────────────────┐
+│ Liquidity       │
+│ Screener        │
+└────────┬────────┘
+         │
+         ├──► Provides symbols to:
+         │    • Price Store
+         │    • All analysis agents
+         │
+         ▼
+┌─────────────────┐
+│ Price Store     │
+└────────┬────────┘
+         │
+         ├──► Provides OHLCV data to:
+         │    • Technical Agent
+         │    • Anomaly Agent
+         │    • Portfolio Agent (for P&L)
+         │
+         ▼
+┌─────────────────┬─────────────────┬─────────────────┐
+│                 │                 │                 │
+▼                 ▼                 ▼                 ▼
+Technical     Fundamental      Anomaly          News
+   │               │                │                │
+   │               │                └────────────────┤
+   │               │                                 │
+   └───────────────┴──────────────┬──────────────────┘
+                                  │
+                                  ▼
+                           ┌──────────────┐
+                           │  Correlator  │
+                           └──────┬───────┘
+                                  │
+                                  ▼
+                            Insights & Reports
+```
+
+## Agent Interaction Patterns
+
+### Pattern 1: Sequential Chain
+
+```
+Liquidity → Price Store → Technical → Anomaly → Correlator
+
+Used in: Daily Analysis Workflow
+Benefit: Clear data flow, easy to understand
+```
+
+### Pattern 2: Parallel Fan-Out
+
+```
+                Price Store
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+        ▼            ▼            ▼
+   Technical    Anomaly      Fundamental
+   (parallel)   (parallel)   (parallel)
+
+Used in: Daily Analysis (after price sync)
+Benefit: 3x faster execution
+```
+
+### Pattern 3: Validation Loop
+
+```
+   User Trade Request
+          │
+          ▼
+   Risk Agent (validate)
+          │
+          ├──► Approved ──► Portfolio Agent (execute)
+          │                        │
+          └──► Rejected            ▼
+                             Portfolio Updated
+                                   │
+                                   ▼
+                             Risk Agent (recheck)
+
+Used in: Validated Trade Execution
+Benefit: Ensures trade safety
+```
+
+### Pattern 4: Event-Driven Cascade
+
+```
+   Anomaly Agent
+          │
+          │ detect high severity
+          ▼
+   Emit HIGH_SEVERITY_ANOMALY event
+          │
+          ├──► News Agent (search related news)
+          │
+          ├──► Technical Agent (deep dive)
+          │
+          └──► Correlator (correlate all data)
+
+Used in: Automatic Investigation
+Benefit: Reactive, automatic deep analysis
+```
+
+## Agent Communication Matrix
+
+```
+┌────────────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
+│            │Liq │Prc │Tch │Fnd │Ano │Nws │Cor │Por │Rsk │
+├────────────┼────┼────┼────┼────┼────┼────┼────┼────┼────┤
+│ Liquidity  │ -  │ ✓  │ ✓  │ ✓  │ ✓  │    │    │    │    │
+│ Price      │    │ -  │ ✓  │ ✓  │ ✓  │    │    │ ✓  │    │
+│ Technical  │    │    │ -  │    │ ✓  │    │ ✓  │    │    │
+│ Fundamental│    │    │    │ -  │    │    │ ✓  │    │    │
+│ Anomaly    │    │    │    │    │ -  │    │ ✓  │    │    │
+│ News       │    │    │    │    │    │ -  │ ✓  │    │    │
+│ Correlator │    │    │    │    │    │    │ -  │    │    │
+│ Portfolio  │    │    │    │    │    │    │    │ -  │ ✓  │
+│ Risk       │    │    │    │    │    │    │    │ ✓  │ -  │
+└────────────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
+
+Legend:
+✓ = Agent provides data to
+Liq = Liquidity, Prc = Price, Tch = Technical, Fnd = Fundamental
+Ano = Anomaly, Nws = News, Cor = Correlator, Por = Portfolio, Rsk = Risk
+```
+
+## Shared Database Access
+
+```
+┌────────────────────────────────────────────────────┐
+│              SQLite Database                       │
+│              data/psx_data.db                      │
+├────────────────────────────────────────────────────┤
+│                                                    │
+│  price_data        news_articles    anomalies     │
+│  ┌────────┐       ┌───────────┐    ┌─────────┐   │
+│  │ R/W by │       │  R/W by   │    │  R/W by │   │
+│  │ Price  │       │  News     │    │ Anomaly │   │
+│  │ Store  │       │  Agent    │    │  Agent  │   │
+│  │────────│       │───────────│    │─────────│   │
+│  │ Read by│       │  Read by  │    │ Read by │   │
+│  │ • Tech │       │  • Corr   │    │ • Corr  │   │
+│  │ • Anom │       │           │    │         │   │
+│  │ • Port │       │           │    │         │   │
+│  └────────┘       └───────────┘    └─────────┘   │
+│                                                    │
+│  portfolios       positions        risk_settings  │
+│  ┌────────┐       ┌─────────┐     ┌──────────┐   │
+│  │ R/W by │       │  R/W by │     │  R/W by  │   │
+│  │ Portfolio      │ Portfolio     │  Risk    │   │
+│  │ Agent  │       │  Agent  │     │  Agent   │   │
+│  │────────│       │─────────│     │──────────│   │
+│  │ Read by│       │ Read by │     │  Read by │   │
+│  │ • Risk │       │ • Risk  │     │ • Port   │   │
+│  └────────┘       └─────────┘     └──────────┘   │
+└────────────────────────────────────────────────────┘
+```
+
+## Agent Lifecycle
+
+```
+Agent Instantiation (via AgentAdapter):
+
+┌────────────────────────────────┐
+│  AgentAdapter.load_agent()     │
+│                                │
+│  1. Check cache                │
+│     └─ If cached, return       │
+│                                │
+│  2. Dynamic import             │
+│     module = importlib.import_module()
+│                                │
+│  3. Instantiate class          │
+│     agent = module.Class()     │
+│                                │
+│  4. Optional: inject event_bus │
+│     agent.event_bus = bus      │
+│                                │
+│  5. Cache instance             │
+│     self._cache[name] = agent  │
+│                                │
+│  6. Return agent               │
+└────────────────────────────────┘
+
+Agent Method Invocation:
+
+┌────────────────────────────────┐
+│  AgentAdapter.call_method()    │
+│                                │
+│  1. Load agent (see above)     │
+│                                │
+│  2. Get method                 │
+│     method = getattr(agent, name)
+│                                │
+│  3. Call method                │
+│     result = method(**params)  │
+│                                │
+│  4. Optional: emit event       │
+│     if agent.event_bus:        │
+│       agent.event_bus.publish()│
+│                                │
+│  5. Return result              │
+└────────────────────────────────┘
+```
+
+## Agent Integration Modes
+
+### Mode 1: Classic (No Event Bus)
+
+```
+┌─────────────────────┐
+│  PSXTechnicalAgent  │
+│                     │
+│  def analyze(self): │
+│    # analysis       │
+│    return result    │
+└─────────────────────┘
+
+Called by: AgentAdapter
+Events: None
+Compatibility: ✓ Full backward compatibility
+```
+
+### Mode 2: Event-Enhanced (Optional Events)
+
+```
+┌──────────────────────────────────┐
+│  PSXTechnicalAgent               │
+│                                  │
+│  def __init__(self, event_bus=None):
+│    self.event_bus = event_bus    │
+│                                  │
+│  def analyze(self):              │
+│    result = # analysis           │
+│                                  │
+│    if self.event_bus:            │
+│      self.event_bus.publish()    │
+│                                  │
+│    return result                 │
+└──────────────────────────────────┘
+
+Called by: AgentAdapter (injects event_bus)
+Events: Emitted if event_bus provided
+Compatibility: ✓ Backward compatible
+```
+
+### Mode 3: Orchestration-Native (Future)
+
+```
+┌──────────────────────────────────┐
+│  PSXTechnicalAgent               │
+│                                  │
+│  def __init__(self, event_bus):  │
+│    self.event_bus = event_bus    │ (required)
+│                                  │
+│  def analyze(self):              │
+│    result = # analysis           │
+│    self.event_bus.publish()      │ (always)
+│    return result                 │
+└──────────────────────────────────┘
+
+Called by: AgentAdapter (must provide event_bus)
+Events: Always emitted
+Compatibility: ⚠ Requires event_bus
+```
+
+## Summary
+
+The 9-agent ecosystem provides:
+
+✅ **Clear Separation** - Each agent has specific responsibility
+✅ **Loose Coupling** - Agents communicate via events
+✅ **Shared Data** - Single SQLite database
+✅ **Parallel Execution** - Independent agents run concurrently
+✅ **Event-Driven** - Reactive workflows and feedback loops
+✅ **Backward Compatible** - Existing agents work unchanged
+✅ **Extensible** - Easy to add new agents
+
+Agent Count: 9
+- Data Collection: 3
+- Analysis: 4
+- Portfolio & Risk: 2

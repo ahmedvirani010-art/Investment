@@ -1,0 +1,330 @@
+# Event Flow Diagram
+
+## Event-Driven Architecture
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                      PSX EVENT BUS                             │
+│                                                                │
+│  Publishers              Event Bus            Subscribers      │
+│  ┌────────┐             ┌──────────┐         ┌──────────┐    │
+│  │ Agent  │───publish──►│          │────────►│ Handler  │    │
+│  │   A    │             │  Events  │         │    1     │    │
+│  └────────┘             │          │         └──────────┘    │
+│                         │  Router  │                          │
+│  ┌────────┐             │          │         ┌──────────┐    │
+│  │ Agent  │───publish──►│          │────────►│ Handler  │    │
+│  │   B    │             │          │         │    2     │    │
+│  └────────┘             │          │         └──────────┘    │
+│                         │          │                          │
+│  ┌────────┐             │          │         ┌──────────┐    │
+│  │ Coord  │───publish──►│          │────────►│Wildcard  │    │
+│  │        │             │          │         │ Handler  │    │
+│  └────────┘             └──────────┘         └──────────┘    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+## Event Types & Flow
+
+### Data Events Flow
+
+```
+PSXPriceStore
+    │
+    │ fetch prices from yfinance
+    │ store in database
+    │
+    ├──► PRICE_DATA_UPDATED
+         │
+         ├──► PSXTechnicalAgent (uses prices for analysis)
+         ├──► PSXAnomalyAgent (uses prices for detection)
+         └──► PSXPortfolioAgent (updates position values)
+
+
+PSXNewsAgent
+    │
+    │ fetch from RSS feeds
+    │ parse & store articles
+    │
+    ├──► NEWS_FETCHED
+    │    │
+    │    └──► PSXNewsPriceCorrelator (correlates with prices)
+    │
+    └──► NEWS_PUBLISHED (when new article)
+         │
+         └──► News Impact Analysis Workflow (triggered)
+```
+
+### Analysis Events Flow
+
+```
+PSXTechnicalAgent
+    │
+    │ analyze indicators
+    │ generate signals
+    │
+    └──► TECHNICAL_ANALYSIS_COMPLETE
+         │
+         ├──► Logging Handler
+         └──► Reporting
+
+
+PSXAnomalyAgent
+    │
+    │ detect anomalies
+    │ calculate severity
+    │
+    ├──► ANOMALY_DETECTED
+    │    │
+    │    ├──► Logging Handler
+    │    └──► PSXNewsPriceCorrelator
+    │
+    └──► HIGH_SEVERITY_ANOMALY (if severity > 0.8)
+         │
+         └──► Investigation Workflow (auto-triggered)
+
+
+PSXNewsPriceCorrelator
+    │
+    │ correlate news with anomalies
+    │ calculate causality
+    │
+    └──► NEWS_CORRELATION_COMPLETE
+         │
+         └──► Reporting System
+```
+
+### Portfolio Events Flow
+
+```
+PSXPortfolioAgent
+    │
+    │ add position
+    │
+    ├──► POSITION_OPENED
+    │    │
+    │    ├──► PSXRiskAgent (check portfolio risk)
+    │    ├──► Logging Handler
+    │    └──► Notification System
+    │
+    │ close position
+    │
+    ├──► POSITION_CLOSED
+    │    │
+    │    ├──► PSXRiskAgent (recheck risk)
+    │    ├──► Performance Tracking
+    │    └──► Reporting
+    │
+    │ calculate P&L
+    │
+    └──► PORTFOLIO_UPDATED
+         │
+         ├──► Risk Check Workflow (triggered)
+         └──► Dashboard Update
+```
+
+### Risk Events Flow
+
+```
+PSXRiskAgent
+    │
+    │ validate trade
+    │
+    ├──► RISK_CHECK_COMPLETE
+    │    │
+    │    └──► Logging Handler
+    │
+    ├──► RISK_VIOLATION (if rules violated)
+    │    │
+    │    ├──► Alert System (email/Slack)
+    │    ├──► Risk Check Workflow (triggered)
+    │    └──► Block trade execution
+    │
+    └──► RISK_THRESHOLD_EXCEEDED (if metric > threshold)
+         │
+         ├──► Alert System
+         └──► Emergency Procedures
+```
+
+### Workflow Events Flow
+
+```
+WorkflowCoordinator
+    │
+    ├──► WORKFLOW_STARTED
+    │    │
+    │    └──► Monitoring Dashboard
+    │
+    ├──► TASK_STARTED (for each task)
+    │    │
+    │    └──► Detailed Logging
+    │
+    ├──► TASK_COMPLETED (for each task)
+    │    │
+    │    └──► Performance Metrics
+    │
+    ├──► WORKFLOW_COMPLETED
+    │    │
+    │    └──► Success Notification
+    │
+    └──► WORKFLOW_FAILED
+         │
+         ├──► Error Logging
+         ├──► Alert System
+         └──► Retry Handler
+```
+
+## Event Chain Example: Daily Analysis
+
+```
+1. User triggers daily_analysis workflow
+   │
+   └──► WORKFLOW_STARTED
+        data: {workflow_name: "daily_analysis"}
+
+2. Liquidity screening task starts
+   │
+   ├──► TASK_STARTED
+   │    data: {task_name: "select_stocks"}
+   │
+   └──► TASK_COMPLETED
+        data: {symbols: ["OGDC", "PPL", ...]}
+
+3. Price sync task starts
+   │
+   ├──► TASK_STARTED
+   │    data: {task_name: "sync_prices"}
+   │
+   ├──► PRICE_DATA_UPDATED
+   │    data: {symbols: [...], rows: 660}
+   │
+   └──► TASK_COMPLETED
+
+4. Technical analysis tasks (parallel)
+   │
+   ├──► TASK_STARTED (tech_OGDC)
+   ├──► TASK_STARTED (tech_PPL)
+   ├──► TASK_STARTED (tech_PSO)
+   │    ...
+   │
+   ├──► TECHNICAL_ANALYSIS_COMPLETE (OGDC)
+   ├──► TECHNICAL_ANALYSIS_COMPLETE (PPL)
+   │    ...
+   │
+   ├──► TASK_COMPLETED (tech_OGDC)
+   ├──► TASK_COMPLETED (tech_PPL)
+   └──► ...
+
+5. Anomaly detection tasks (parallel)
+   │
+   ├──► TASK_STARTED (anomaly_OGDC)
+   │    ...
+   │
+   ├──► ANOMALY_DETECTED (OGDC, severity=0.92)
+   ├──► HIGH_SEVERITY_ANOMALY (OGDC)
+   │    │
+   │    └──► Investigation Workflow TRIGGERED
+   │
+   ├──► ANOMALY_DETECTED (PPL, severity=0.65)
+   │
+   └──► TASK_COMPLETED (anomaly_OGDC)
+
+6. News correlation
+   │
+   ├──► TASK_STARTED (correlate_news)
+   │
+   ├──► NEWS_CORRELATION_COMPLETE
+   │    data: {correlated: 5, high_causality: 2}
+   │
+   └──► TASK_COMPLETED
+
+7. Workflow completes
+   │
+   └──► WORKFLOW_COMPLETED
+        data: {execution_time: 58.3s, tasks: 10}
+```
+
+## Event Subscription Patterns
+
+### Type-Specific Subscription
+
+```
+event_bus.subscribe(
+    EventType.ANOMALY_DETECTED,
+    handler_function
+)
+
+Flow:
+  ANOMALY_DETECTED event published
+    ↓
+  Event bus checks subscriptions
+    ↓
+  Calls handler_function(event)
+```
+
+### Wildcard Subscription
+
+```
+event_bus.subscribe_wildcard(
+    log_all_events
+)
+
+Flow:
+  ANY event published
+    ↓
+  Event bus checks wildcard subscriptions
+    ↓
+  Calls log_all_events(event) for every event
+```
+
+### Multiple Event Subscription
+
+```
+event_bus.subscribe(EventType.POSITION_OPENED, handler)
+event_bus.subscribe(EventType.POSITION_CLOSED, handler)
+event_bus.subscribe(EventType.PORTFOLIO_UPDATED, handler)
+
+Flow:
+  Any of the 3 events published
+    ↓
+  Event bus routes to same handler
+    ↓
+  Handler checks event.type to determine action
+```
+
+## Event Filtering
+
+```
+def filtered_handler(event):
+    # Only process high-severity events
+    if event.data.get('severity', 0) > 0.8:
+        trigger_workflow(event)
+
+event_bus.subscribe(
+    EventType.ANOMALY_DETECTED,
+    filtered_handler
+)
+```
+
+## Event Correlation
+
+```
+Events with correlation_id:
+
+Event 1: WORKFLOW_STARTED
+  correlation_id: "wf_12345"
+
+Event 2: TASK_STARTED
+  correlation_id: "wf_12345"
+
+Event 3: ANOMALY_DETECTED
+  correlation_id: "wf_12345"
+
+Event 4: WORKFLOW_COMPLETED
+  correlation_id: "wf_12345"
+
+Query all events for workflow:
+  events = event_bus.get_event_log(
+      correlation_id="wf_12345"
+  )
+```

@@ -1,0 +1,131 @@
+# System Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     PSX ORCHESTRATION SYSTEM                            │
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │                   USER/CLI INTERFACE                              │ │
+│  │                                                                   │ │
+│  │   run_daily_analysis() | execute_trade() | check_risk()         │ │
+│  └────────────────────────────┬──────────────────────────────────────┘ │
+│                               │                                         │
+│                               ▼                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │              PSXOrchestrationAgent (Main API)                     │ │
+│  │                                                                   │ │
+│  │  • run_workflow()          • get_workflow_status()              │ │
+│  │  • run_daily_analysis()    • list_workflows()                   │ │
+│  │  • trigger_workflow()      • execute_custom_workflow()          │ │
+│  └────────────────────────────┬──────────────────────────────────────┘ │
+│                               │                                         │
+│         ┌─────────────────────┼─────────────────────┐                  │
+│         │                     │                     │                  │
+│         ▼                     ▼                     ▼                  │
+│  ┌──────────────┐   ┌──────────────────┐   ┌──────────────┐          │
+│  │   Workflow   │   │    PSXEventBus   │   │    State     │          │
+│  │ Coordinator  │   │   (Pub/Sub)      │   │   Manager    │          │
+│  │              │   │                  │   │              │          │
+│  │ • Build DAG  │   │ • publish()      │   │ • save()     │          │
+│  │ • Execute    │   │ • subscribe()    │   │ • load()     │          │
+│  │ • Saga       │   │ • get_log()      │   │ • history()  │          │
+│  └──────┬───────┘   └──────────────────┘   └──────┬───────┘          │
+│         │                                          │                  │
+│         ▼                                          ▼                  │
+│  ┌──────────────────────────────────────────────────────────┐       │
+│  │               Execution Engine                           │       │
+│  │                                                          │       │
+│  │  • execute_tasks() - Parallel execution                │       │
+│  │  • retry_with_backoff() - Error handling               │       │
+│  │  • check_cache() / set_cache() - Caching               │       │
+│  │  • ThreadPoolExecutor (4 workers)                      │       │
+│  └────────────────────────┬─────────────────────────────────┘       │
+│                           │                                         │
+│                           ▼                                         │
+│  ┌──────────────────────────────────────────────────────────┐       │
+│  │               Agent Adapter                              │       │
+│  │                                                          │       │
+│  │  • Dynamic agent loading                                │       │
+│  │  • Method invocation                                     │       │
+│  │  • Event emission (optional)                            │       │
+│  └────────────────────────┬─────────────────────────────────┘       │
+│                           │                                         │
+└───────────────────────────┼─────────────────────────────────────────┘
+                            │
+        ┌───────────────────┴───────────────────────────┐
+        │                                               │
+        ▼                                               ▼
+┌──────────────────┐                          ┌───────────────────┐
+│  9 PSX Agents    │                          │  Shared Database  │
+│                  │◄─────────────────────────│   (SQLite)        │
+│ • Liquidity      │     Read/Write           │                   │
+│ • PriceStore     │                          │ • price_data      │
+│ • Technical      │                          │ • news_articles   │
+│ • Fundamental    │                          │ • anomalies       │
+│ • Anomaly        │                          │ • portfolios      │
+│ • News           │                          │ • positions       │
+│ • Correlator     │                          │ • risk_settings   │
+│ • Portfolio      │                          │ • workflow_state  │
+│ • Risk           │                          │                   │
+└──────────────────┘                          └───────────────────┘
+```
+
+## Component Layers
+
+**Layer 1: User Interface**
+- CLI / Python API
+- High-level workflow execution
+
+**Layer 2: Orchestration Core**
+- PSXOrchestrationAgent - Main entry point
+- WorkflowCoordinator - Workflow management
+- PSXEventBus - Event routing
+- StateManager - Persistence
+
+**Layer 3: Execution**
+- ExecutionEngine - Task execution
+- AgentAdapter - Dynamic agent loading
+- Caching & retry logic
+
+**Layer 4: Agents & Data**
+- 9 specialized agents
+- Shared SQLite database
+- External APIs (yfinance, RSS)
+
+## Data Flow
+
+```
+User Request
+    ↓
+PSXOrchestrationAgent
+    ↓
+WorkflowCoordinator (build DAG)
+    ↓
+ExecutionEngine (execute tasks in parallel)
+    ↓
+AgentAdapter (load & call agents)
+    ↓
+Agents (perform analysis)
+    ↓
+Results (cached & returned)
+    ↓
+StateManager (persist state)
+    ↓
+EventBus (emit events)
+```
+
+## Event Flow
+
+```
+Agent Action
+    ↓
+Emit Event
+    ↓
+EventBus.publish()
+    ↓
+Route to Subscribers
+    ↓
+Event Handlers
+    ↓
+Trigger Workflows (if configured)
+```

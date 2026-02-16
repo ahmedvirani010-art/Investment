@@ -1,0 +1,204 @@
+# Workflow Execution Diagram
+
+## Daily Analysis Workflow Execution
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                    DAILY ANALYSIS WORKFLOW                         │
+│                    Execution Timeline                              │
+└────────────────────────────────────────────────────────────────────┘
+
+Time    Task                          Worker      Status
+────────────────────────────────────────────────────────────────────
+0s      [SELECT_STOCKS]               Main        ████████████ (10s)
+        └─ PSXLiquidityScreener.screen_stocks()
+        
+10s     [SYNC_PRICES]                 Main        ██████████████████████████ (30s)
+        └─ PSXPriceStore.update_prices(30 symbols)
+        
+        [FETCH_NEWS]                  Main        ████████████████████████ (40s)
+        └─ PSXNewsAgent.fetch_news()
+
+40s     [TECHNICAL_1] OGDC            Worker 1    ████ (15s)
+        [TECHNICAL_2] PPL             Worker 2    ████ (15s)
+        [TECHNICAL_3] PSO             Worker 3    ████ (15s)
+        [TECHNICAL_4] ENGRO           Worker 4    ████ (15s)
+        └─ PSXTechnicalAgent.analyze_symbol() × 30 (parallel)
+
+55s     [ANOMALY_1] OGDC              Worker 1    ██ (8s)
+        [ANOMALY_2] PPL               Worker 2    ██ (8s)
+        [ANOMALY_3] PSO               Worker 3    ██ (8s)
+        [ANOMALY_4] ENGRO             Worker 4    ██ (8s)
+        └─ PSXAnomalyAgent.detect_anomalies() × 30 (parallel)
+
+63s     [CORRELATE_NEWS]              Main        ████ (10s)
+        └─ PSXNewsPriceCorrelator.correlate_anomalies()
+
+73s     WORKFLOW COMPLETE
+        Total Time: 73 seconds
+────────────────────────────────────────────────────────────────────
+
+Legend: █ = 1 second
+```
+
+## Task Dependency Graph (DAG)
+
+```
+                    [SELECT_STOCKS]
+                           │
+                           ▼
+                    [SYNC_PRICES]
+                           │
+           ┌───────────────┴───────────────┐
+           │                               │
+           ▼                               ▼
+    [FETCH_NEWS]                   [TECHNICAL_ANALYSIS]
+           │                        (30 symbols × 4 workers)
+           │                               │
+           │                               ▼
+           │                      [ANOMALY_DETECTION]
+           │                      (30 symbols × 4 workers)
+           │                               │
+           └───────────────┬───────────────┘
+                           ▼
+                  [CORRELATE_NEWS]
+                           │
+                           ▼
+                    [REPORT_GENERATED]
+```
+
+## Sequential vs Parallel Comparison
+
+### Sequential Execution (OLD)
+```
+Time: 0s ────────────────────────────────────────────────────────────> 180s
+
+[SELECT] → [SYNC] → [TECH₁] → [TECH₂] → ... → [TECH₃₀] → [ANOM₁] → ... → [CORR]
+   10s      30s      2s×30 = 60s                   1s×30 = 30s          10s
+
+Total: 180 seconds
+```
+
+### Parallel Execution (NEW)
+```
+Time: 0s ────────────────────────────────────────────────> 73s
+
+[SELECT] → [SYNC] → ┌─[TECH₁-₄] (parallel)─┐ → ┌─[ANOM₁-₄]─┐ → [CORR]
+   10s      30s     │  60s ÷ 4 = 15s       │   │  30s ÷ 4 = 8s│    10s
+                    └──────────────────────┘   └─────────────┘
+
+Total: 73 seconds (2.5x speedup)
+```
+
+## Execution States
+
+```
+Workflow State Machine:
+                                                         
+    CREATED → RUNNING → COMPLETED
+                  │
+                  └──────→ FAILED
+                  │
+                  └──────→ PAUSED
+
+Task State Machine:
+
+    PENDING → RUNNING → COMPLETED
+                  │
+                  ├──────→ FAILED (retry) → RUNNING
+                  │
+                  └──────→ SKIPPED (condition not met)
+```
+
+## Error Handling Flow
+
+```
+Task Execution:
+┌─────────────────────────────────────────────────────────┐
+│  1. Check Cache                                         │
+│     └─ Hit? → Return cached result                      │
+│     └─ Miss? → Continue                                 │
+│                                                         │
+│  2. Execute Task                                        │
+│     └─ Success? → Cache result, emit event, return      │
+│     └─ Failure? → Continue to retry                     │
+│                                                         │
+│  3. Retry Logic (Exponential Backoff)                  │
+│     Attempt 1: Immediate                                │
+│     Attempt 2: Wait 2s                                  │
+│     Attempt 3: Wait 4s                                  │
+│     └─ Success? → Cache result, return                  │
+│     └─ All failed? → Mark task as FAILED                │
+│                                                         │
+│  4. Workflow Decision                                   │
+│     └─ Critical task? → Fail entire workflow           │
+│     └─ Optional task? → Continue with other tasks      │
+│                                                         │
+│  5. Saga Rollback (if enabled)                         │
+│     └─ Execute compensating actions in reverse order   │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Caching Strategy
+
+```
+Task Execution Path:
+
+┌─────────────┐
+│ Task Start  │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────┐     Yes    ┌──────────────────┐
+│ Caching enabled?├───────────►│ Check cache      │
+└────────┬────────┘             └────────┬─────────┘
+         │No                             │
+         │                               ▼
+         │                    ┌──────────────────┐
+         │                    │ Cache hit &      │
+         │                    │ TTL valid?       │
+         │                    └────┬─────────────┘
+         │                         │ Yes
+         │                         ▼
+         │              ┌──────────────────────┐
+         │              │ Return cached result │
+         │              └──────────────────────┘
+         │                         │
+         │                         └─────────────────┐
+         │                                           │
+         ▼                                           ▼
+┌──────────────────┐                      ┌──────────────────┐
+│ Execute task     │                      │ Emit event       │
+└────────┬─────────┘                      └────────┬─────────┘
+         │                                          │
+         ▼                                          ▼
+┌──────────────────┐                      ┌──────────────────┐
+│ Cache result     │                      │ Return result    │
+│ (if successful)  │                      │                  │
+└────────┬─────────┘                      └──────────────────┘
+         │
+         └──────────────────────────────────┘
+```
+
+## Workflow Resumability
+
+```
+Workflow Execution:
+
+Normal Flow:
+  Task 1 → Task 2 → Task 3 → Task 4 → Task 5 → Complete
+
+Failure at Task 3:
+  Task 1 ✓ → Task 2 ✓ → Task 3 ✗
+    ↓
+  Save state to database
+    ↓
+  Workflow marked as FAILED
+
+Resume from failure:
+  Load state from database
+    ↓
+  Skip Task 1 (completed)
+  Skip Task 2 (completed)
+  Retry Task 3 → Task 4 → Task 5 → Complete
+```
