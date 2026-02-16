@@ -22,6 +22,7 @@ model Stock {
   userStocks    UserStock[]
   researchNotes ResearchNote[]
   stockTags     StockTag[]
+  tradePlans    TradePlan[]
 }
 
 model Transaction {
@@ -126,4 +127,107 @@ model NoteTag {
   tag  Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([noteId, tagId])
+}
+
+// Risk Management Models
+
+model RiskSettings {
+  id                      String   @id @default(cuid())
+  accountValue            Float
+  maxRiskPerTradePct      Float    @default(2.0)
+  maxPositionSizePct      Float    @default(10.0)
+  maxTotalRiskPct         Float    @default(6.0)
+  maxSectorExposurePct    Float    @default(30.0)
+  maxSinglePositionPct    Float    @default(15.0)
+  minPositions            Int      @default(5)
+  maxPositions            Int      @default(20)
+  defaultStopLossPct      Float    @default(3.0)
+  minRewardRiskRatio      Float    @default(2.0)
+  useKellyCriterion       Boolean  @default(false)
+  kellyFraction           Float    @default(0.25)
+  allowPyramiding         Boolean  @default(true)
+  maxCorrelatedPositions  Int      @default(3)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model TradePlan {
+  id                String   @id @default(cuid())
+  stockId           String
+  status            String   // PLANNED, ACTIVE, CLOSED, CANCELLED
+  direction         String   // LONG or SHORT
+  entryPrice        Float
+  targetPrice       Float?
+  stopLoss          Float
+  positionSize      Float?
+  riskAmount        Float?
+  rewardRiskRatio   Float?
+  notes             String?
+  checklist         String?  // JSON string for checklist items
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  stock             Stock    @relation(fields: [stockId], references: [id])
+  positions         Position[]
+  tradeJournal      TradeJournal?
+
+  @@index([stockId])
+  @@index([status])
+}
+
+model Position {
+  id                String   @id @default(cuid())
+  tradePlanId       String
+  type              String   // ENTRY or EXIT
+  date              DateTime
+  price             Float
+  quantity          Float
+  fees              Float    @default(0)
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  tradePlan         TradePlan @relation(fields: [tradePlanId], references: [id])
+
+  @@index([tradePlanId])
+}
+
+model TradeJournal {
+  id                String   @id @default(cuid())
+  tradePlanId       String   @unique
+  entryDate         DateTime
+  exitDate          DateTime?
+  entryPrice        Float
+  exitPrice         Float?
+  quantity          Float
+  realizedPL        Float?
+  realizedPLPercent Float?
+  holdingPeriod     Int?     // in days
+  strategyLabel     String?
+  ideaSource        String?
+  exitMethod        String?
+  entryNotes        String?
+  exitNotes         String?
+  chartImage        String?  // URL or base64
+  emotionalState    String?
+  lessonsLearned    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tradePlan         TradePlan @relation(fields: [tradePlanId], references: [id])
+
+  @@index([entryDate])
+  @@index([strategyLabel])
+}
+
+model AccountSnapshot {
+  id            String   @id @default(cuid())
+  date          DateTime @unique
+  totalValue    Float
+  cashBalance   Float
+  investedValue Float
+  unrealizedPL  Float
+  realizedPL    Float
+  createdAt     DateTime @default(now())
+
+  @@index([date])
 }
