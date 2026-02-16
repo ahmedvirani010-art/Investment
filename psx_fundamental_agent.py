@@ -14,6 +14,14 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import yfinance as yf
 
+# Import PSX company financials store for real data
+try:
+    from psx_company_financials_store import PSXCompanyFinancialsStore
+    PSX_REAL_DATA_AVAILABLE = True
+except ImportError:
+    PSXCompanyFinancialsStore = None
+    PSX_REAL_DATA_AVAILABLE = False
+
 
 class Recommendation(Enum):
     """Investment recommendation"""
@@ -219,6 +227,22 @@ class PSXFundamentalAgent:
         self.cache_ttl_hours = cache_ttl_hours
         self.price_store = price_store
         self.metrics_cache: Dict[str, Tuple[Dict, datetime]] = {}
+
+        # Initialize company financials store for real PSX data
+        self.financials_store = None
+        self.using_real_data = False
+
+        if PSX_REAL_DATA_AVAILABLE:
+            try:
+                self.financials_store = PSXCompanyFinancialsStore()
+                self.using_real_data = True
+                print("✓ Fundamental Agent: Using REAL PSX financial data from company pages")
+            except Exception as e:
+                print(f"⚠ Warning: Could not initialize PSX financials store: {e}")
+                print("  Falling back to mock data for enhanced metrics")
+        else:
+            print("⚠ PSX Company Financials Store not available")
+            print("  Using mock data for enhanced metrics")
 
     def quick_analysis(self, symbol: str) -> FundamentalScore:
         """
@@ -801,9 +825,16 @@ class PSXFundamentalAgent:
             except:
                 pass
 
-            # Add mock data for fields not available via yfinance
-            # In production, these would come from proper data sources
-            metrics.update(self._generate_mock_enhanced_metrics(symbol))
+            # Add enhanced metrics: Try real PSX data first, fallback to mock
+            psx_real_metrics = self._get_psx_real_metrics(symbol)
+
+            if psx_real_metrics:
+                metrics.update(psx_real_metrics)
+                metrics['_data_source'] = 'PSX_Real_Data'
+            else:
+                # Fallback to mock data
+                metrics.update(self._generate_mock_enhanced_metrics(symbol))
+                metrics['_data_source'] = 'Mock_Data'
 
             metrics['_cached_at'] = datetime.now()
 
@@ -816,9 +847,90 @@ class PSXFundamentalAgent:
 
         return metrics
 
+    def _get_psx_real_metrics(self, symbol: str) -> Optional[Dict]:
+        """
+        Get real financial metrics from PSX company pages
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            Dictionary with real financial metrics, or None if not available
+        """
+        if not self.using_real_data or not self.financials_store:
+            return None
+
+        try:
+            # Try to get existing data
+            latest_metrics = self.financials_store.get_latest_metrics(symbol)
+
+            if not latest_metrics:
+                # Fetch and store new data
+                print(f"  Fetching fresh PSX data for {symbol}...")
+                financials = self.financials_store.fetch_and_store(symbol)
+
+                if financials:
+                    latest_metrics = self.financials_store.get_latest_metrics(symbol)
+
+            if not latest_metrics:
+                return None
+
+            # Convert PSX data to format expected by fundamental agent
+            psx_metrics = {}
+
+            # Revenue and profit metrics
+            if 'revenue' in latest_metrics:
+                psx_metrics['psx_revenue'] = latest_metrics['revenue']
+
+            if 'profit_after_tax' in latest_metrics:
+                psx_metrics['psx_profit_after_tax'] = latest_metrics['profit_after_tax']
+
+            if 'eps' in latest_metrics:
+                psx_metrics['psx_eps'] = latest_metrics['eps']
+
+            # Growth rates (REAL data, not mock!)
+            if 'revenue_growth' in latest_metrics:
+                psx_metrics['revenue_cagr_3y'] = latest_metrics['revenue_growth']
+                psx_metrics['earnings_growth_yoy'] = latest_metrics.get('profit_growth', 0)
+
+            # Margins (REAL data!)
+            if 'net_margin' in latest_metrics:
+                psx_metrics['margin_trend'] = (
+                    'expanding' if latest_metrics['net_margin'] > 0
+                    else 'contracting'
+                )
+                psx_metrics['margin_change_pct'] = latest_metrics['net_margin']
+
+            # Quarterly data
+            if 'latest_quarter_eps' in latest_metrics:
+                psx_metrics['psx_latest_quarter_eps'] = latest_metrics['latest_quarter_eps']
+
+            if 'latest_quarter_revenue' in latest_metrics:
+                psx_metrics['psx_latest_quarter_revenue'] = latest_metrics['latest_quarter_revenue']
+
+            # Set defaults for fields we don't have (better than random mock data)
+            psx_metrics.update({
+                'interest_coverage': 5.0,  # Conservative default
+                'earnings_cagr_3y': latest_metrics.get('profit_growth', 0),
+                'earnings_surprise_pct': 0,
+                'estimate_revision_trend': 0,
+                'upcoming_catalysts': [],
+                'debt_growth_yoy': 0,
+                'quarters_margin_declining': 0,
+            })
+
+            print(f"  ✓ Using REAL PSX data for {symbol}")
+            return psx_metrics
+
+        except Exception as e:
+            print(f"  ⚠ Error getting PSX real metrics for {symbol}: {e}")
+            return None
+
     def _generate_mock_enhanced_metrics(self, symbol: str) -> Dict:
         """
         Generate mock data for metrics not available via standard APIs
+
+        This is a FALLBACK when real PSX data is not available.
 
         In production, these would be fetched from:
         - Company quarterly reports
