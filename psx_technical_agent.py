@@ -60,16 +60,26 @@ class PSXTechnicalAgent:
     - Momentum: RSI, MACD, Stochastic
     - Volatility: Bollinger Bands, ATR
     - Volume: OBV
+
+    Enhanced Mode (if config provided):
+    - 5 advanced strategies (Trend Following, Mean Reversion, Momentum, Volatility, Statistical Arbitrage)
+    - Ensemble voting with weighted aggregation
+    - Enhanced snapshots with strategy-level breakdown
     """
 
-    def __init__(self, price_store):
+    def __init__(self, price_store, config=None):
         """
         Initialize technical agent
 
         Args:
             price_store: PSXPriceStore instance for reading price data
+            config: Optional TechnicalAgentConfig for enhanced analysis
+                   If None, uses basic mode (backward compatible)
         """
         self.price_store = price_store
+        self.config = config
+        self._strategies = None
+        self._aggregator = None
 
     def analyze_symbol(self, symbol: str) -> TechnicalSnapshot:
         """
@@ -185,6 +195,143 @@ class PSXTechnicalAgent:
         """
         snapshot = self.analyze_symbol(symbol)
         return [s for s in snapshot.signals if s.signal_type != SignalType.NEUTRAL]
+
+    # ===================================================================
+    # ENHANCED ANALYSIS METHODS (Strategy Ensemble)
+    # ===================================================================
+
+    def _init_strategies(self):
+        """Initialize strategies and aggregator (lazy initialization)"""
+        if self._strategies is not None:
+            return
+
+        if self.config is None:
+            raise ValueError("Config required for enhanced analysis. Pass config to __init__()")
+
+        # Import here to avoid circular dependencies
+        from strategies.trend_following import TrendFollowingStrategy
+        from strategies.mean_reversion import MeanReversionStrategy
+        from strategies.momentum import MomentumStrategy
+        from strategies.volatility import VolatilityStrategy
+        from strategies.statistical_arbitrage import StatisticalArbitrageStrategy
+        from strategies.signal_aggregator import SignalAggregator
+
+        # Initialize all 5 strategies
+        self._strategies = [
+            TrendFollowingStrategy(self.config),
+            MeanReversionStrategy(self.config),
+            MomentumStrategy(self.config),
+            VolatilityStrategy(self.config),
+            StatisticalArbitrageStrategy(self.config)
+        ]
+
+        # Initialize aggregator
+        self._aggregator = SignalAggregator(self.config)
+
+    def analyze_symbol_enhanced(self, symbol: str):
+        """
+        Enhanced technical analysis using strategy ensemble
+
+        Uses 5 advanced strategies with weighted voting:
+        1. Trend Following (EMA alignment + ADX)
+        2. Mean Reversion (Z-score + Bollinger + Dual RSI + Hurst)
+        3. Momentum (Multi-period returns + volume)
+        4. Volatility (Regime detection via ATR)
+        5. Statistical Arbitrage (Hurst + distribution properties)
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            EnhancedSnapshot with ensemble signal and strategy breakdown
+
+        Raises:
+            ValueError: If config not provided to __init__
+        """
+        # Ensure strategies initialized
+        self._init_strategies()
+
+        # Determine required days (max across all strategies)
+        required_days = max(s.get_required_days() for s in self._strategies)
+        required_days = max(required_days, self.config.min_data_days)
+
+        # Fetch price data
+        df = self.price_store.get_prices(symbol, days=required_days)
+
+        if df.empty or len(df) < 50:
+            # Not enough data - return neutral snapshot
+            from strategies.base_strategy import EnhancedSnapshot
+
+            return EnhancedSnapshot(
+                symbol=symbol,
+                date=datetime.now().strftime('%Y-%m-%d'),
+                signals=[],
+                overall_bias=SignalType.NEUTRAL,
+                confidence=0.0,
+                indicator_values={'error': 'insufficient_data'},
+                strategy_signals=[],
+                strategy_weights={},
+                ensemble_score=0.0,
+                regime='UNKNOWN'
+            )
+
+        latest_date = df.index[-1].strftime('%Y-%m-%d')
+
+        # Run all strategies
+        strategy_signals = []
+        for strategy in self._strategies:
+            try:
+                signal = strategy.analyze(symbol, df, latest_date)
+                strategy_signals.append(signal)
+            except Exception as e:
+                print(f"Warning: {strategy.name} failed for {symbol}: {str(e)}")
+                # Continue with other strategies
+
+        if not strategy_signals:
+            # All strategies failed
+            from strategies.base_strategy import EnhancedSnapshot
+
+            return EnhancedSnapshot(
+                symbol=symbol,
+                date=latest_date,
+                signals=[],
+                overall_bias=SignalType.NEUTRAL,
+                confidence=0.0,
+                indicator_values={'error': 'all_strategies_failed'},
+                strategy_signals=[],
+                strategy_weights={},
+                ensemble_score=0.0,
+                regime='UNKNOWN'
+            )
+
+        # Aggregate signals
+        ensemble = self._aggregator.aggregate(strategy_signals, symbol, latest_date)
+
+        # Create enhanced snapshot
+        snapshot = self._aggregator.create_enhanced_snapshot(ensemble, symbol, latest_date, df)
+
+        return snapshot
+
+    def analyze_batch_enhanced(self, symbols: List[str]) -> Dict:
+        """
+        Enhanced analysis for multiple stocks
+
+        Args:
+            symbols: List of stock symbols
+
+        Returns:
+            Dictionary mapping symbol to EnhancedSnapshot
+        """
+        results = {}
+
+        for symbol in symbols:
+            try:
+                snapshot = self.analyze_symbol_enhanced(symbol)
+                results[symbol] = snapshot
+            except Exception as e:
+                print(f"Error analyzing {symbol}: {str(e)}")
+
+        return results
 
     # ===================================================================
     # INDICATOR COMPUTATION METHODS
