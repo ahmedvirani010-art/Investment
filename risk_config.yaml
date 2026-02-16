@@ -1,0 +1,119 @@
+# PSX Proactive Risk Management Configuration
+# For position/swing trading (holding periods: days to weeks)
+
+monitoring:
+  # Position/Swing trading schedule
+  eod_analysis_time: "16:00"  # 4:00 PM - FULL analysis after market close
+  morning_brief_time: "09:00"  # 9:00 AM - News scan for watchlist + positions
+  timezone: "Asia/Karachi"
+
+  # Data frequency
+  use_eod_data: true  # End-of-day data sufficient for swing trading
+  full_analysis_frequency: "daily"  # Only EOD
+  morning_brief_mode: "news_scan_watchlist"  # Scan all liquid stocks, not just positions
+
+position_limits:
+  # Size limits
+  max_position_size_pct: 10.0  # Max 10% of portfolio per position
+  max_position_value: 1000000  # Max Rs 1M per position
+
+  # Loss limits
+  stop_loss_pct: 5.0  # Exit if down 5% from entry
+  daily_loss_pct: 2.0  # Max 2% daily loss per position
+  trailing_stop_pct: 3.0  # Lock in profits with 3% trailing stop
+
+  # Risk score limits
+  max_risk_score: 80.0  # Reduce position if risk score > 80
+
+  # Holding period
+  max_holding_days: 90  # Review positions older than 90 days
+
+portfolio_limits:
+  # Concentration limits
+  max_single_position_pct: 15.0  # Max 15% in single stock
+  max_sector_exposure_pct: 40.0  # Max 40% in single sector
+  max_correlated_exposure_pct: 50.0  # Max 50% in highly correlated stocks
+
+  # Loss limits
+  daily_portfolio_loss_pct: 3.0  # Max 3% portfolio loss per day
+  weekly_portfolio_loss_pct: 7.0  # Max 7% portfolio loss per week
+  drawdown_limit_pct: 15.0  # Max 15% drawdown from peak
+
+  # Leverage limits
+  max_leverage: 1.0  # No leverage (1.0 = fully invested)
+
+  # Volatility limits
+  max_portfolio_volatility: 0.20  # Max 20% annualized volatility
+
+alerts:
+  # Deduplication cooldown (in days for position/swing trading)
+  deduplication_days:
+    CRITICAL: 1
+    HIGH: 1
+    MEDIUM: 2
+    LOW: 3
+
+  # Alert channels
+  channels:
+    console: true
+    file: true
+    email: false  # Set to true and configure SMTP for email alerts
+    webhook: false  # Set to true and configure webhook URL
+
+  # File logging
+  file_path: "alerts/risk_alerts.log"
+
+  # EOD digest mode (for position/swing trading)
+  eod_digest_mode: true  # Compile alerts into daily digest
+
+execution:
+  # Execution mode
+  auto_execute: false  # Manual approval required (recommended)
+  dry_run: true        # Test mode - log actions but don't execute
+
+  # Approval settings
+  require_manual_approval: true  # Always ask before executing actions
+
+# Watchlist - major liquid PSX stocks to monitor for news
+watchlist:
+  # Banking & Finance
+  - HBL     # Habib Bank Limited
+  - UBL     # United Bank Limited
+  - MCB     # MCB Bank Limited
+  - BAFL    # Bank Alfalah Limited
+  - ABL     # Allied Bank Limited
+
+  # Cement
+  - LUCK    # Lucky Cement
+  - DGKC    # D. G. Khan Cement
+  - MLCF    # Maple Leaf Cement
+
+  # Energy & Oil/Gas
+  - PSO     # Pakistan State Oil
+  - OGDC    # Oil & Gas Development Company
+  - PPL     # Pakistan Petroleum Limited
+  - POL     # Pakistan Oilfields Limited
+  - MARI    # Mari Petroleum Company
+
+  # Fertilizer & Chemicals
+  - FFC     # Fauji Fertilizer Company
+  - EFERT   # Engro Fertilizer
+  - ENGRO   # Engro Corporation
+
+  # Power
+  - HUBC    # Hub Power Company
+  - KAPCO   # Kot Addu Power Company
+
+  # Others
+  - INDU    # Indus Motor Company
+  - PSMC    # Pak Suzuki Motor Company
+
+# Database paths
+database:
+  risk_db: "risk_data/risk.db"
+  price_db: "price_data/prices.db"
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/risk_management.log"
