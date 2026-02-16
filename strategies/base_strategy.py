@@ -56,6 +56,7 @@ class EnhancedSnapshot:
     strategy_weights: Dict[str, float] = field(default_factory=dict)
     ensemble_score: float = 0.0  # -1.0 (bearish) to +1.0 (bullish)
     regime: str = "NORMAL"  # Volatility regime: HIGH_VOL, NORMAL, LOW_VOL
+    ensemble_signal: Optional['EnsembleSignal'] = None  # Full ensemble signal with group consensus
 
 
 class BaseStrategy(ABC):

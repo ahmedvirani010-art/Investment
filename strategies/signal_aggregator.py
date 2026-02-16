@@ -601,7 +601,8 @@ class SignalAggregator:
             strategy_signals=ensemble.strategy_signals,
             strategy_weights=strategy_weights,
             ensemble_score=ensemble.confidence_weighted_score,
-            regime=regime
+            regime=regime,
+            ensemble_signal=ensemble  # Store full ensemble for group consensus access
         )
 
 
