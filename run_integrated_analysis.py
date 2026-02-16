@@ -12,6 +12,9 @@ from psx_liquidity_screener import PSXLiquidityScreener
 from psx_price_store import PSXPriceStore
 from psx_technical_agent import PSXTechnicalAgent
 from psx_technical_store import TechnicalStore
+from psx_sentiment_analyzer import PSXSentimentAnalyzer
+from psx_sentiment_momentum_store import SentimentMomentumStore
+from psx_sentiment_momentum_tracker import SentimentMomentumTracker
 import argparse
 
 
@@ -24,7 +27,9 @@ def run_full_analysis(
     lookback_days: int = 60,
     skip_technicals: bool = False,
     ta_lookback: int = 250,
-    save_technicals: bool = False
+    save_technicals: bool = False,
+    skip_sentiment_momentum: bool = False,
+    sentiment_lookback: int = 30
 ):
     """
     Run complete integrated analysis
@@ -39,6 +44,8 @@ def run_full_analysis(
         skip_technicals: Skip technical analysis computation
         ta_lookback: Days of price history for indicators (default: 250)
         save_technicals: Persist computed indicators to database
+        skip_sentiment_momentum: Skip sentiment momentum analysis
+        sentiment_lookback: Days of sentiment history to analyze (default: 30)
     """
 
     print("="*100)
@@ -110,6 +117,39 @@ def run_full_analysis(
         print("-"*100)
         print("⏭️  Skipping news fetch, using existing database")
 
+    # Step 3.5: Sentiment Momentum Tracking
+    sentiment_signals = {}
+    if not skip_sentiment_momentum:
+        print(f"\n💭 STEP 3.5: Sentiment Momentum Analysis")
+        print("-"*100)
+        print(f"🔍 Analyzing sentiment momentum for {len(symbols)} stocks...")
+
+        # Initialize sentiment momentum components
+        analyzer = PSXSentimentAnalyzer()
+        sentiment_store = SentimentMomentumStore()
+        sentiment_tracker = SentimentMomentumTracker(
+            sentiment_store=sentiment_store,
+            price_store=price_store
+        )
+
+        # Analyze sentiment momentum for each symbol
+        sentiment_signals = sentiment_tracker.analyze_batch(symbols)
+
+        # Count signals
+        buy_signals = sum(1 for s in sentiment_signals.values() if s.signal_type == 'buy')
+        sell_signals = sum(1 for s in sentiment_signals.values() if s.signal_type == 'sell')
+        reversals = sum(1 for s in sentiment_signals.values() if s.reversal_signal)
+        divergences = sum(1 for s in sentiment_signals.values() if s.divergence_type)
+
+        print(f"✅ Sentiment momentum analysis complete")
+        print(f"   Signals: Buy={buy_signals}, Sell={sell_signals}, Hold={len(sentiment_signals)-buy_signals-sell_signals}")
+        print(f"   Reversals detected: {reversals}")
+        print(f"   Divergences detected: {divergences}")
+    else:
+        print(f"\n💭 STEP 3.5: Sentiment Momentum Analysis")
+        print("-"*100)
+        print("⏭️  Skipping sentiment momentum analysis")
+
     # Step 4: Technical Analysis
     technical_snapshots = {}
     if not skip_technicals:
@@ -180,6 +220,10 @@ def run_full_analysis(
         if technical_snapshots:
             print_technical_summary(technical_snapshots, anomalies_report)
 
+        # Print sentiment momentum summary if available
+        if sentiment_signals:
+            print_sentiment_momentum_summary(sentiment_signals)
+
     else:
         print("ℹ️  No anomalies detected - nothing to correlate")
         print("\n" + "="*100)
@@ -190,6 +234,10 @@ def run_full_analysis(
         if technical_snapshots:
             print_technical_summary(technical_snapshots, {})
 
+        # Still print sentiment momentum summary if available
+        if sentiment_signals:
+            print_sentiment_momentum_summary(sentiment_signals)
+
     # Summary
     print("\n" + "="*100)
     print("📊 ANALYSIS SUMMARY")
@@ -198,6 +246,10 @@ def run_full_analysis(
     print(f"Price Records: {stats['total_records']:,}")
     if fetch_news:
         print(f"News Articles Fetched: {summary.total_fetched}")
+    if not skip_sentiment_momentum:
+        buy_count = sum(1 for s in sentiment_signals.values() if s.signal_type == 'buy')
+        sell_count = sum(1 for s in sentiment_signals.values() if s.signal_type == 'sell')
+        print(f"Sentiment Signals: Buy={buy_count}, Sell={sell_count}")
     if not skip_technicals:
         print(f"Technical Signals: {sum(len(snap.signals) for snap in technical_snapshots.values())}")
     print(f"Anomalies Detected: {total_anomalies}")
@@ -290,6 +342,91 @@ def print_technical_summary(technical_snapshots, anomalies_report):
     print("\n" + "="*100)
 
 
+def print_sentiment_momentum_summary(sentiment_signals):
+    """Print sentiment momentum analysis summary"""
+    print("\n" + "="*100)
+    print("💭 SENTIMENT MOMENTUM SUMMARY")
+    print("="*100)
+
+    # Buy signals (bullish sentiment momentum)
+    buy_signals = [(symbol, signal) for symbol, signal in sentiment_signals.items()
+                   if signal.signal_type == 'buy']
+
+    if buy_signals:
+        print(f"\n📈 BULLISH SENTIMENT MOMENTUM:")
+        # Sort by confidence
+        for symbol, signal in sorted(buy_signals, key=lambda x: x[1].confidence, reverse=True)[:10]:
+            sentiment = signal.sentiment_score
+            momentum_7d = signal.momentum_7d
+            strength = signal.strength.upper()
+            conf = signal.confidence * 100
+
+            # Main reasons (first 2)
+            reasons = signal.reasons[:2] if len(signal.reasons) >= 2 else signal.reasons
+            reason_str = "; ".join(reasons)
+
+            print(f"   {symbol:8s} Sentiment: {sentiment:+.3f}  |  7d Momentum: {momentum_7d:+.4f}  |  "
+                  f"{strength:8s} ({conf:.0f}%)")
+            if signal.reversal_signal:
+                print(f"            🔄 {signal.reversal_signal.replace('_', ' ').title()}")
+            if signal.divergence_type:
+                print(f"            ⚠️  {signal.divergence_type.replace('_', ' ').title()}")
+    else:
+        print(f"\n📈 BULLISH SENTIMENT MOMENTUM: None")
+
+    # Sell signals (bearish sentiment momentum)
+    sell_signals = [(symbol, signal) for symbol, signal in sentiment_signals.items()
+                    if signal.signal_type == 'sell']
+
+    if sell_signals:
+        print(f"\n📉 BEARISH SENTIMENT MOMENTUM:")
+        for symbol, signal in sorted(sell_signals, key=lambda x: x[1].confidence, reverse=True)[:10]:
+            sentiment = signal.sentiment_score
+            momentum_7d = signal.momentum_7d
+            strength = signal.strength.upper()
+            conf = signal.confidence * 100
+
+            print(f"   {symbol:8s} Sentiment: {sentiment:+.3f}  |  7d Momentum: {momentum_7d:+.4f}  |  "
+                  f"{strength:8s} ({conf:.0f}%)")
+            if signal.reversal_signal:
+                print(f"            🔄 {signal.reversal_signal.replace('_', ' ').title()}")
+            if signal.divergence_type:
+                print(f"            ⚠️  {signal.divergence_type.replace('_', ' ').title()}")
+    else:
+        print(f"\n📉 BEARISH SENTIMENT MOMENTUM: None")
+
+    # Sentiment reversals
+    reversals = [(symbol, signal) for symbol, signal in sentiment_signals.items()
+                 if signal.reversal_signal]
+
+    if reversals:
+        print(f"\n🔄 SENTIMENT REVERSALS DETECTED:")
+        for symbol, signal in reversals:
+            reversal_type = signal.reversal_signal.replace('_', ' ').title()
+            print(f"   {symbol:8s} {reversal_type}")
+    else:
+        print(f"\n🔄 SENTIMENT REVERSALS DETECTED: None")
+
+    # Divergences
+    divergences = [(symbol, signal) for symbol, signal in sentiment_signals.items()
+                   if signal.divergence_type]
+
+    if divergences:
+        print(f"\n⚠️  SENTIMENT-PRICE DIVERGENCES:")
+        for symbol, signal in divergences:
+            div_type = signal.divergence_type.replace('_', ' ').title()
+            sentiment = signal.sentiment_score
+            print(f"   {symbol:8s} {div_type}  |  Sentiment: {sentiment:+.3f}")
+            if signal.divergence_type == 'bullish_divergence':
+                print(f"            → Potential accumulation opportunity")
+            else:
+                print(f"            → Potential distribution, consider profit-taking")
+    else:
+        print(f"\n⚠️  SENTIMENT-PRICE DIVERGENCES: None")
+
+    print("\n" + "="*100)
+
+
 def main():
     """CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -357,6 +494,19 @@ def main():
         help='Persist computed indicators to database'
     )
 
+    parser.add_argument(
+        '--skip-sentiment-momentum',
+        action='store_true',
+        help='Skip sentiment momentum analysis'
+    )
+
+    parser.add_argument(
+        '--sentiment-lookback',
+        type=int,
+        default=30,
+        help='Days of sentiment history to analyze (default: 30)'
+    )
+
     args = parser.parse_args()
 
     run_full_analysis(
@@ -368,7 +518,9 @@ def main():
         lookback_days=args.lookback,
         skip_technicals=args.skip_technicals,
         ta_lookback=args.ta_lookback,
-        save_technicals=args.save_technicals
+        save_technicals=args.save_technicals,
+        skip_sentiment_momentum=args.skip_sentiment_momentum,
+        sentiment_lookback=args.sentiment_lookback
     )
 
 
