@@ -85,17 +85,18 @@ class PSXAnnouncementScraper:
         except Exception as e:
             logger.error(f"Failed to scrape PSX website: {e}")
 
-            # Fallback: Try alternative methods
-            logger.info("Trying alternative scraping methods...")
+            # Fallback: Try company-specific pages
+            logger.info("Trying company-specific page scraping...")
 
             try:
-                # Method 2: Try PSX API (if available)
-                api_announcements = self._scrape_psx_api(days_back, symbols)
-                announcements.extend(api_announcements)
-                logger.info(f"Found {len(api_announcements)} announcements from PSX API")
+                # Method 2: Scrape individual company pages
+                if symbols:
+                    company_announcements = self._scrape_company_pages(days_back, symbols)
+                    announcements.extend(company_announcements)
+                    logger.info(f"Found {len(company_announcements)} announcements from company pages")
 
-            except Exception as api_error:
-                logger.error(f"PSX API failed: {api_error}")
+            except Exception as company_error:
+                logger.error(f"Company page scraping failed: {company_error}")
 
         # Remove duplicates based on announcement_id
         unique_announcements = self._deduplicate_announcements(announcements)
@@ -283,83 +284,235 @@ class PSXAnnouncementScraper:
             logger.debug(f"Failed to parse announcement div: {e}")
             return None
 
-    def _scrape_psx_api(
+    def _scrape_company_pages(
         self,
         days_back: int,
-        symbols: Optional[List[str]] = None
+        symbols: List[str]
     ) -> List[RawAnnouncement]:
         """
-        Try to fetch announcements from PSX API (if available)
+        Scrape announcements from individual PSX company pages
 
-        Note: PSX may or may not have a public API
-        This is a placeholder for API-based fetching
+        PSX company pages (e.g., https://dps.psx.com.pk/company/HBL) contain:
+        - Company information
+        - Recent announcements
+        - Corporate actions
+        - Financial data
+
+        Args:
+            days_back: Number of days to look back
+            symbols: List of stock symbols to scrape
+
+        Returns:
+            List of RawAnnouncement objects
+        """
+        all_announcements = []
+        cutoff_date = datetime.now() - timedelta(days=days_back)
+
+        for symbol in symbols:
+            try:
+                logger.info(f"Scraping company page for {symbol}...")
+
+                # Company page URL format
+                company_url = f"{self.PSX_BASE_URL}/company/{symbol}"
+
+                response = self._fetch_url(company_url)
+                if not response:
+                    logger.warning(f"Failed to fetch company page for {symbol}")
+                    continue
+
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                # Strategy 1: Look for announcements table/section
+                # PSX company pages typically have an "Announcements" or "Company Announcements" section
+                announcements = self._parse_company_announcements(soup, symbol, cutoff_date)
+
+                if announcements:
+                    all_announcements.extend(announcements)
+                    logger.info(f"Found {len(announcements)} announcements for {symbol}")
+                else:
+                    logger.debug(f"No recent announcements found for {symbol}")
+
+                # Be respectful - delay between requests
+                time.sleep(self.delay_seconds)
+
+            except Exception as e:
+                logger.error(f"Error scraping company page for {symbol}: {e}")
+                continue
+
+        return all_announcements
+
+    def _parse_company_announcements(
+        self,
+        soup: BeautifulSoup,
+        symbol: str,
+        cutoff_date: datetime
+    ) -> List[RawAnnouncement]:
+        """
+        Parse announcements from company page HTML
+
+        Company pages may have different layouts:
+        - Table with announcement rows
+        - List of announcement items
+        - Cards/divs for each announcement
         """
         announcements = []
 
-        # Potential API endpoints (to be verified)
-        api_endpoints = [
-            f"{self.PSX_BASE_URL}/api/announcements",
-            f"{self.PSX_BASE_URL}/api/company-announcements",
-            f"{self.PSX_BASE_URL}/json/announcements",
-        ]
+        # Strategy 1: Look for tables with class/id containing "announcement"
+        announcement_tables = soup.find_all('table', class_=re.compile(r'announcement|company-ann', re.I))
+        announcement_tables.extend(soup.find_all('table', id=re.compile(r'announcement|company-ann', re.I)))
 
-        for endpoint in api_endpoints:
-            try:
-                response = self._fetch_url(endpoint)
+        for table in announcement_tables:
+            rows = table.find_all('tr')
 
-                if response and response.headers.get('content-type', '').startswith('application/json'):
-                    data = response.json()
+            for row in rows[1:]:  # Skip header
+                try:
+                    cols = row.find_all('td')
+                    if len(cols) >= 2:  # Need at least date and title
+                        announcement = self._parse_announcement_row(cols, row)
 
-                    # Parse JSON response (structure unknown, adapt as needed)
-                    if isinstance(data, list):
-                        for item in data:
-                            announcement = self._parse_api_announcement(item)
-                            if announcement:
-                                announcements.append(announcement)
+                        if announcement and announcement.announcement_date >= cutoff_date:
+                            # Override symbol (row parsing might get it wrong)
+                            announcement.symbol = symbol
+                            announcements.append(announcement)
 
-                    logger.info(f"Successfully fetched from API: {endpoint}")
-                    break
+                except Exception as e:
+                    logger.debug(f"Failed to parse announcement row: {e}")
+                    continue
 
-            except Exception as e:
-                logger.debug(f"API endpoint failed: {endpoint} - {e}")
-                continue
+        # Strategy 2: Look for divs/sections with announcements
+        if not announcements:
+            announcement_sections = soup.find_all('div', class_=re.compile(r'announcement|notice|corporate-action', re.I))
+
+            for section in announcement_sections:
+                # Look for individual announcement items
+                items = section.find_all(['div', 'li'], class_=re.compile(r'item|announcement|notice'))
+
+                for item in items:
+                    try:
+                        announcement = self._parse_company_announcement_item(item, symbol)
+
+                        if announcement and announcement.announcement_date >= cutoff_date:
+                            announcements.append(announcement)
+
+                    except Exception as e:
+                        logger.debug(f"Failed to parse announcement item: {e}")
+                        continue
+
+        # Strategy 3: Look for any recent date + text patterns (fallback)
+        if not announcements:
+            # Find all elements that might contain dates
+            date_pattern = re.compile(r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2}')
+
+            for elem in soup.find_all(text=date_pattern):
+                try:
+                    parent = elem.parent
+                    if parent:
+                        date_text = elem.strip()
+                        announcement_date = self._parse_date(date_text)
+
+                        if announcement_date and announcement_date >= cutoff_date:
+                            # Try to find title/description near this date
+                            title = self._extract_nearby_text(parent)
+
+                            if title and len(title) > 10:
+                                announcement_id = self._generate_announcement_id(
+                                    symbol, announcement_date, title
+                                )
+
+                                announcements.append(RawAnnouncement(
+                                    announcement_id=announcement_id,
+                                    symbol=symbol,
+                                    announcement_date=announcement_date,
+                                    title=title,
+                                    description=title,
+                                    source_url=f"{self.PSX_BASE_URL}/company/{symbol}",
+                                    source="PSX_Company_Page"
+                                ))
+
+                except Exception as e:
+                    logger.debug(f"Failed to parse date-based announcement: {e}")
+                    continue
 
         return announcements
 
-    def _parse_api_announcement(self, data: Dict) -> Optional[RawAnnouncement]:
-        """Parse announcement from API JSON response"""
+    def _parse_company_announcement_item(
+        self,
+        item,
+        symbol: str
+    ) -> Optional[RawAnnouncement]:
+        """Parse announcement from a div/li item on company page"""
         try:
-            # Adapt field names based on actual API response
-            symbol = data.get('symbol', data.get('ticker', 'UNKNOWN')).upper()
+            text = item.get_text(strip=True)
 
-            # Parse date
-            date_str = data.get('date', data.get('announcement_date', data.get('published_date')))
-            announcement_date = self._parse_date(date_str) if date_str else datetime.now()
+            # Look for date pattern in text
+            date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})', text)
 
-            title = data.get('title', data.get('subject', 'Untitled'))
-            description = data.get('description', data.get('content', title))
+            if date_match:
+                date_text = date_match.group(1)
+                announcement_date = self._parse_date(date_text)
 
-            attachment_url = data.get('attachment_url', data.get('pdf_url'))
-            source_url = data.get('url', data.get('link', self.PSX_ANNOUNCEMENTS_URL))
+                # Title is the text without the date
+                title = text.replace(date_text, '').strip()
 
-            announcement_id = self._generate_announcement_id(
-                symbol, announcement_date, title
-            )
+                # Look for links (might be attachment or detail page)
+                link = item.find('a')
+                attachment_url = None
+                source_url = f"{self.PSX_BASE_URL}/company/{symbol}"
 
-            return RawAnnouncement(
-                announcement_id=announcement_id,
-                symbol=symbol,
-                announcement_date=announcement_date,
-                title=title,
-                description=description,
-                attachment_url=attachment_url,
-                source_url=source_url,
-                source="PSX_API"
-            )
+                if link and link.get('href'):
+                    href = link.get('href')
+                    if href.endswith('.pdf') or 'attachment' in href.lower():
+                        attachment_url = self._resolve_url(href)
+                    else:
+                        source_url = self._resolve_url(href)
+
+                announcement_id = self._generate_announcement_id(
+                    symbol, announcement_date, title
+                )
+
+                return RawAnnouncement(
+                    announcement_id=announcement_id,
+                    symbol=symbol,
+                    announcement_date=announcement_date,
+                    title=title,
+                    description=text,
+                    attachment_url=attachment_url,
+                    source_url=source_url,
+                    source="PSX_Company_Page"
+                )
+
+            return None
 
         except Exception as e:
-            logger.debug(f"Failed to parse API announcement: {e}")
+            logger.debug(f"Failed to parse company announcement item: {e}")
             return None
+
+    def _extract_nearby_text(self, element) -> str:
+        """Extract meaningful text near a date element"""
+        # Try to get text from siblings or parent
+        texts = []
+
+        # Get text from next siblings
+        for sibling in element.find_next_siblings(limit=3):
+            if sibling.name in ['p', 'div', 'span', 'td']:
+                text = sibling.get_text(strip=True)
+                if len(text) > 10:
+                    texts.append(text)
+
+        # If nothing found, try parent's text
+        if not texts and element.parent:
+            texts.append(element.parent.get_text(strip=True))
+
+        return ' '.join(texts)[:500]  # Limit length
+
+    def _resolve_url(self, url: str) -> str:
+        """Resolve relative URLs to absolute"""
+        if url.startswith('http'):
+            return url
+        elif url.startswith('/'):
+            return f"{self.PSX_BASE_URL}{url}"
+        else:
+            return f"{self.PSX_BASE_URL}/{url}"
 
     def scrape_symbol_announcements(
         self,
@@ -503,7 +656,17 @@ class PSXAnnouncementScraper:
 
 
 class SECPFilingScraper:
-    """Scraper for SECP regulatory filings (future enhancement)"""
+    """
+    Scraper for SECP regulatory filings
+
+    NOTE: SECP (Securities and Exchange Commission of Pakistan) website does not
+    provide easily accessible investor-focused information or announcements.
+    Most investor-relevant announcements are available directly on PSX company pages
+    or the PSX announcements portal.
+
+    This scraper is maintained as a stub for potential future use if SECP
+    improves their data accessibility.
+    """
 
     SECP_BASE_URL = "https://www.secp.gov.pk"
 
@@ -511,15 +674,39 @@ class SECPFilingScraper:
         self.session = requests.Session()
 
     def scrape_filings(self, days_back: int = 7) -> List[RawAnnouncement]:
-        """Scrape SECP filings (placeholder for future implementation)"""
-        logger.info("SECP scraper not yet implemented")
+        """
+        Scrape SECP filings (not implemented - SECP doesn't provide investor data)
+
+        SECP website is not designed for investor information access.
+        Use PSX company pages and announcements portal instead.
+
+        Returns:
+            Empty list (no implementation)
+        """
+        logger.info("SECP scraper not implemented - SECP doesn't provide investor-accessible data")
+        logger.info("Use PSX company pages or PSX announcements portal for company information")
         return []
 
 
 class CompanyIRScraper:
-    """Scraper for company investor relations pages (future enhancement)"""
+    """
+    Scraper for company investor relations pages (complementary to PSX pages)
+
+    Note: This is a secondary/complementary source. Primary announcement source
+    is PSX company pages (https://dps.psx.com.pk/company/{SYMBOL}).
+
+    Company IR pages may have:
+    - Additional press releases not on PSX
+    - Investor presentations
+    - Management commentary
+    - Conference call transcripts
+
+    However, each company's IR page has a different structure, requiring
+    per-company scraping logic.
+    """
 
     # Map of symbols to IR page URLs
+    # TODO: Expand this list as needed
     COMPANY_IR_URLS = {
         'HBL': 'https://www.hbl.com/investor-relations',
         'UBL': 'https://www.ubldigital.com/investor-relations',
@@ -530,10 +717,28 @@ class CompanyIRScraper:
 
     def __init__(self):
         self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
 
     def scrape_company_ir(self, symbol: str, days_back: int = 7) -> List[RawAnnouncement]:
-        """Scrape company IR page (placeholder for future implementation)"""
+        """
+        Scrape company IR page (placeholder for future implementation)
+
+        Note: Each company's IR page has different structure.
+        Implementation would require per-company parsing logic.
+
+        Priority: LOW (PSX company pages are primary source)
+
+        Args:
+            symbol: Stock symbol
+            days_back: Number of days to look back
+
+        Returns:
+            List of announcements (empty for now)
+        """
         logger.info(f"Company IR scraper not yet implemented for {symbol}")
+        logger.info(f"Recommendation: Use PSX company page scraper (already implemented)")
         return []
 
 
