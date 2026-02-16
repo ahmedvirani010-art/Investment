@@ -51,6 +51,18 @@ class TechnicalSnapshot:
     indicator_values: Dict[str, float] = field(default_factory=dict)
 
 
+@dataclass
+class MultiTimeframeSnapshot:
+    """Multi-timeframe analysis combining daily and weekly views"""
+    symbol: str
+    date: str
+    daily: TechnicalSnapshot
+    weekly: TechnicalSnapshot
+    confirmation_score: float = 0.0  # 0.0-1.0 based on timeframe agreement
+    aligned_signals: List[str] = field(default_factory=list)
+    conflicting_signals: List[str] = field(default_factory=list)
+
+
 class PSXTechnicalAgent:
     """
     Technical analysis agent for Pakistan Stock Exchange
@@ -651,6 +663,185 @@ class PSXTechnicalAgent:
             confidence = 0.0
 
         return overall_bias, confidence
+
+    # ===================================================================
+    # MULTI-TIMEFRAME ANALYSIS METHODS
+    # ===================================================================
+
+    def analyze_symbol_weekly(self, symbol: str) -> TechnicalSnapshot:
+        """
+        Full technical analysis for one stock using weekly data
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            TechnicalSnapshot with all indicators computed on weekly timeframe
+        """
+        # Fetch weekly price data (need 52 weeks for SMA(50))
+        df = self.price_store.get_weekly_prices(symbol, weeks=70)
+
+        if df.empty or len(df) < 20:
+            # Not enough weekly data for meaningful analysis
+            return TechnicalSnapshot(
+                symbol=symbol,
+                date=datetime.now().strftime('%Y-%m-%d'),
+                signals=[],
+                overall_bias=SignalType.NEUTRAL,
+                confidence=0.0,
+                indicator_values={}
+            )
+
+        # Compute all indicators on weekly data
+        signals = []
+        indicator_values = {}
+
+        latest_date = df.index[-1].strftime('%Y-%m-%d')
+
+        # RSI on weekly
+        rsi_signal, rsi_value = self._analyze_rsi(symbol, df, latest_date)
+        if rsi_signal:
+            signals.append(rsi_signal)
+        indicator_values['RSI_Weekly'] = rsi_value
+
+        # MACD on weekly
+        macd_signal, macd_values = self._analyze_macd(symbol, df, latest_date)
+        if macd_signal:
+            signals.append(macd_signal)
+        indicator_values['MACD_Weekly'] = macd_values.get('MACD', np.nan)
+
+        # SMA Crossovers on weekly (use smaller periods for weekly)
+        sma_signals, sma_values = self._analyze_sma(symbol, df, latest_date)
+        signals.extend(sma_signals)
+        # Rename SMA values to indicate weekly
+        for key, value in sma_values.items():
+            indicator_values[f"{key}_Weekly"] = value
+
+        # Aggregate signals into overall bias
+        overall_bias, confidence = self._aggregate_signals(signals)
+
+        return TechnicalSnapshot(
+            symbol=symbol,
+            date=latest_date,
+            signals=signals,
+            overall_bias=overall_bias,
+            confidence=confidence,
+            indicator_values=indicator_values
+        )
+
+    def analyze_multi_timeframe(self, symbol: str) -> MultiTimeframeSnapshot:
+        """
+        Analyze a stock across multiple timeframes (daily and weekly)
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            MultiTimeframeSnapshot with daily, weekly, and confirmation analysis
+        """
+        # Get daily analysis
+        daily_snapshot = self.analyze_symbol(symbol)
+
+        # Get weekly analysis
+        weekly_snapshot = self.analyze_symbol_weekly(symbol)
+
+        # Calculate confirmation score
+        confirmation_score, aligned, conflicting = self._calculate_confirmation_score(
+            daily_snapshot, weekly_snapshot
+        )
+
+        return MultiTimeframeSnapshot(
+            symbol=symbol,
+            date=daily_snapshot.date,
+            daily=daily_snapshot,
+            weekly=weekly_snapshot,
+            confirmation_score=confirmation_score,
+            aligned_signals=aligned,
+            conflicting_signals=conflicting
+        )
+
+    def _calculate_confirmation_score(
+        self,
+        daily: TechnicalSnapshot,
+        weekly: TechnicalSnapshot
+    ) -> Tuple[float, List[str], List[str]]:
+        """
+        Calculate how well daily and weekly signals align
+
+        Args:
+            daily: Daily technical snapshot
+            weekly: Weekly technical snapshot
+
+        Returns:
+            Tuple of (confirmation_score, aligned_signals, conflicting_signals)
+            - confirmation_score: 0.0-1.0 where 1.0 = perfect alignment
+            - aligned_signals: List of indicators that agree across timeframes
+            - conflicting_signals: List of indicators that disagree
+        """
+        daily_bias = daily.overall_bias
+        weekly_bias = weekly.overall_bias
+
+        aligned = []
+        conflicting = []
+
+        # Perfect alignment: both bullish or both bearish
+        if daily_bias == weekly_bias:
+            if daily_bias == SignalType.BULLISH:
+                confirmation_score = 1.0
+                aligned.append("Both timeframes are BULLISH")
+            elif daily_bias == SignalType.BEARISH:
+                confirmation_score = 1.0
+                aligned.append("Both timeframes are BEARISH")
+            else:  # Both neutral
+                confirmation_score = 0.5
+                aligned.append("Both timeframes are NEUTRAL")
+
+        # Partial alignment: one bullish/bearish, other neutral
+        elif daily_bias == SignalType.NEUTRAL or weekly_bias == SignalType.NEUTRAL:
+            confirmation_score = 0.7
+            if daily_bias == SignalType.NEUTRAL:
+                aligned.append(f"Daily neutral, Weekly {weekly_bias.value}")
+            else:
+                aligned.append(f"Daily {daily_bias.value}, Weekly neutral")
+
+        # Conflicting: bullish vs bearish
+        else:
+            confirmation_score = 0.3
+            conflicting.append(f"Daily {daily_bias.value} vs Weekly {weekly_bias.value}")
+
+        # Add confidence weighting
+        avg_confidence = (daily.confidence + weekly.confidence) / 2
+        confirmation_score = confirmation_score * (0.7 + 0.3 * avg_confidence)
+
+        # Check for specific indicator alignment
+        # RSI alignment
+        daily_rsi = daily.indicator_values.get('RSI', np.nan)
+        weekly_rsi = weekly.indicator_values.get('RSI_Weekly', np.nan)
+
+        if not pd.isna(daily_rsi) and not pd.isna(weekly_rsi):
+            rsi_diff = abs(daily_rsi - weekly_rsi)
+            if rsi_diff < 10:
+                aligned.append(f"RSI aligned: Daily {daily_rsi:.1f}, Weekly {weekly_rsi:.1f}")
+            elif rsi_diff > 30:
+                conflicting.append(f"RSI diverging: Daily {daily_rsi:.1f}, Weekly {weekly_rsi:.1f}")
+
+        # Trend alignment (SMA positioning)
+        daily_sma50 = daily.indicator_values.get('SMA_50', np.nan)
+        daily_sma200 = daily.indicator_values.get('SMA_200', np.nan)
+        weekly_sma20 = weekly.indicator_values.get('SMA_20_Weekly', np.nan)
+        weekly_sma50 = weekly.indicator_values.get('SMA_50_Weekly', np.nan)
+
+        daily_trend_up = not pd.isna(daily_sma50) and not pd.isna(daily_sma200) and daily_sma50 > daily_sma200
+        weekly_trend_up = not pd.isna(weekly_sma20) and not pd.isna(weekly_sma50) and weekly_sma20 > weekly_sma50
+
+        if daily_trend_up and weekly_trend_up:
+            aligned.append("Both timeframes in uptrend (SMA)")
+        elif not daily_trend_up and not weekly_trend_up:
+            aligned.append("Both timeframes in downtrend (SMA)")
+        elif daily_trend_up != weekly_trend_up:
+            conflicting.append("Trend direction differs between timeframes")
+
+        return confirmation_score, aligned, conflicting
 
 
 def main():

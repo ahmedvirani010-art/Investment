@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Tuple
 from pathlib import Path
-from psx_technical_agent import TechnicalSnapshot, TechnicalSignal, SignalType, SignalStrength
+from psx_technical_agent import TechnicalSnapshot, TechnicalSignal, SignalType, SignalStrength, MultiTimeframeSnapshot
 
 
 class TechnicalStore:
@@ -86,6 +86,34 @@ class TechnicalStore:
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_snap_bias
                 ON technical_snapshots(overall_bias)
+            ''')
+
+            # Multi-timeframe snapshots table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS multi_timeframe_snapshots (
+                    symbol TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    daily_bias TEXT NOT NULL,
+                    weekly_bias TEXT NOT NULL,
+                    confirmation_score REAL NOT NULL,
+                    daily_confidence REAL,
+                    weekly_confidence REAL,
+                    aligned_signals TEXT,
+                    conflicting_signals TEXT,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (symbol, date)
+                )
+            ''')
+
+            # Create indexes for multi-timeframe data
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_mtf_symbol
+                ON multi_timeframe_snapshots(symbol)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_mtf_confirmation
+                ON multi_timeframe_snapshots(confirmation_score DESC)
             ''')
 
             conn.commit()
@@ -399,6 +427,138 @@ class TechnicalStore:
                 'latest_date': date_range[1],
                 'bias_counts': bias_counts
             }
+
+    # ===================================================================
+    # MULTI-TIMEFRAME ANALYSIS STORAGE
+    # ===================================================================
+
+    def save_multi_timeframe_snapshot(self, snapshot: MultiTimeframeSnapshot):
+        """
+        Save multi-timeframe analysis snapshot
+
+        Args:
+            snapshot: MultiTimeframeSnapshot object with daily and weekly analysis
+        """
+        computed_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                INSERT OR REPLACE INTO multi_timeframe_snapshots
+                (symbol, date, daily_bias, weekly_bias, confirmation_score,
+                 daily_confidence, weekly_confidence, aligned_signals, conflicting_signals, computed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                snapshot.symbol,
+                snapshot.date,
+                snapshot.daily.overall_bias.value,
+                snapshot.weekly.overall_bias.value,
+                snapshot.confirmation_score,
+                snapshot.daily.confidence,
+                snapshot.weekly.confidence,
+                json.dumps(snapshot.aligned_signals),
+                json.dumps(snapshot.conflicting_signals),
+                computed_at
+            ))
+
+            conn.commit()
+
+        # Also save the individual daily and weekly snapshots
+        self.save_snapshot(snapshot.daily)
+        self.save_snapshot(snapshot.weekly)
+
+    def get_multi_timeframe_snapshot(self, symbol: str, date: str = None) -> Optional[MultiTimeframeSnapshot]:
+        """
+        Retrieve multi-timeframe snapshot for a specific date
+
+        Args:
+            symbol: Stock symbol
+            date: Date (ISO format). If None, gets latest.
+
+        Returns:
+            MultiTimeframeSnapshot or None
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT date, daily_bias, weekly_bias, confirmation_score,
+                           daily_confidence, weekly_confidence, aligned_signals, conflicting_signals
+                    FROM multi_timeframe_snapshots
+                    WHERE symbol = ? AND date = ?
+                ''', (symbol, date))
+            else:
+                cursor.execute('''
+                    SELECT date, daily_bias, weekly_bias, confirmation_score,
+                           daily_confidence, weekly_confidence, aligned_signals, conflicting_signals
+                    FROM multi_timeframe_snapshots
+                    WHERE symbol = ?
+                    ORDER BY date DESC
+                    LIMIT 1
+                ''', (symbol,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            (snapshot_date, daily_bias, weekly_bias, confirmation_score,
+             daily_confidence, weekly_confidence, aligned_signals_json, conflicting_signals_json) = row
+
+        # Get the full daily and weekly snapshots
+        daily_snapshot = self.get_snapshot(symbol, snapshot_date)
+        weekly_snapshot = self.get_snapshot(symbol, snapshot_date)
+
+        if not daily_snapshot or not weekly_snapshot:
+            return None
+
+        return MultiTimeframeSnapshot(
+            symbol=symbol,
+            date=snapshot_date,
+            daily=daily_snapshot,
+            weekly=weekly_snapshot,
+            confirmation_score=confirmation_score,
+            aligned_signals=json.loads(aligned_signals_json),
+            conflicting_signals=json.loads(conflicting_signals_json)
+        )
+
+    def get_high_confirmation_stocks(self, min_score: float = 0.8, date: str = None) -> List[Tuple[str, float, str, str]]:
+        """
+        Get stocks with high multi-timeframe confirmation scores
+
+        Args:
+            min_score: Minimum confirmation score (0.0-1.0)
+            date: Specific date to query. If None, uses latest for each stock.
+
+        Returns:
+            List of tuples: (symbol, confirmation_score, daily_bias, weekly_bias)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT symbol, confirmation_score, daily_bias, weekly_bias
+                    FROM multi_timeframe_snapshots
+                    WHERE date = ? AND confirmation_score >= ?
+                    ORDER BY confirmation_score DESC
+                ''', (date, min_score))
+            else:
+                # Get latest snapshot for each symbol with high confirmation
+                cursor.execute('''
+                    SELECT m.symbol, m.confirmation_score, m.daily_bias, m.weekly_bias
+                    FROM multi_timeframe_snapshots m
+                    INNER JOIN (
+                        SELECT symbol, MAX(date) as max_date
+                        FROM multi_timeframe_snapshots
+                        GROUP BY symbol
+                    ) latest ON m.symbol = latest.symbol AND m.date = latest.max_date
+                    WHERE m.confirmation_score >= ?
+                    ORDER BY m.confirmation_score DESC
+                ''', (min_score,))
+
+            return cursor.fetchall()
 
 
 def main():

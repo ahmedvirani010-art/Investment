@@ -24,7 +24,8 @@ def run_full_analysis(
     lookback_days: int = 60,
     skip_technicals: bool = False,
     ta_lookback: int = 250,
-    save_technicals: bool = False
+    save_technicals: bool = False,
+    multi_timeframe: bool = False
 ):
     """
     Run complete integrated analysis
@@ -39,6 +40,7 @@ def run_full_analysis(
         skip_technicals: Skip technical analysis computation
         ta_lookback: Days of price history for indicators (default: 250)
         save_technicals: Persist computed indicators to database
+        multi_timeframe: Enable multi-timeframe analysis (daily + weekly)
     """
 
     print("="*100)
@@ -91,6 +93,11 @@ def run_full_analysis(
     print(f"   Symbols: {stats['num_symbols']}")
     print(f"   Date range: {stats['earliest_date']} to {stats['latest_date']}")
 
+    # Compute weekly aggregations if multi-timeframe is enabled
+    if multi_timeframe:
+        print(f"\n📊 Computing weekly aggregations for multi-timeframe analysis...")
+        price_store.update_weekly_from_daily(symbols)
+
     # Step 3: News Collection
     if fetch_news:
         print(f"\n📰 STEP 3: News Collection")
@@ -112,30 +119,60 @@ def run_full_analysis(
 
     # Step 4: Technical Analysis
     technical_snapshots = {}
+    multi_tf_snapshots = {}
     if not skip_technicals:
         print(f"\n📊 STEP 4: Technical Analysis")
         print("-"*100)
-        print(f"🔍 Computing technical indicators for {len(symbols)} stocks...")
 
-        tech_agent = PSXTechnicalAgent(price_store)
-        technical_snapshots = tech_agent.analyze_batch(symbols)
+        if multi_timeframe:
+            print(f"🔍 Computing multi-timeframe analysis (daily + weekly) for {len(symbols)} stocks...")
+            tech_agent = PSXTechnicalAgent(price_store)
 
-        # Count signals
-        total_signals = sum(len(snap.signals) for snap in technical_snapshots.values())
-        bullish = sum(1 for snap in technical_snapshots.values() if snap.overall_bias.value == "Bullish")
-        bearish = sum(1 for snap in technical_snapshots.values() if snap.overall_bias.value == "Bearish")
+            # Analyze each symbol with multi-timeframe
+            for symbol in symbols:
+                try:
+                    mtf_snapshot = tech_agent.analyze_multi_timeframe(symbol)
+                    multi_tf_snapshots[symbol] = mtf_snapshot
+                    technical_snapshots[symbol] = mtf_snapshot.daily
+                except Exception as e:
+                    print(f"  Warning: Error analyzing {symbol}: {str(e)}")
 
-        print(f"✅ Technical analysis complete")
-        print(f"   Total signals: {total_signals}")
-        print(f"   Bullish: {bullish}, Bearish: {bearish}, Neutral: {len(symbols) - bullish - bearish}")
+            # Count signals
+            total_signals = sum(len(snap.signals) for snap in technical_snapshots.values())
+            bullish = sum(1 for snap in technical_snapshots.values() if snap.overall_bias.value == "Bullish")
+            bearish = sum(1 for snap in technical_snapshots.values() if snap.overall_bias.value == "Bearish")
+            high_conf = sum(1 for mtf in multi_tf_snapshots.values() if mtf.confirmation_score >= 0.8)
+
+            print(f"✅ Multi-timeframe analysis complete")
+            print(f"   Total signals: {total_signals}")
+            print(f"   Bullish: {bullish}, Bearish: {bearish}, Neutral: {len(symbols) - bullish - bearish}")
+            print(f"   High confirmation (≥80%): {high_conf}/{len(symbols)}")
+        else:
+            print(f"🔍 Computing technical indicators for {len(symbols)} stocks...")
+            tech_agent = PSXTechnicalAgent(price_store)
+            technical_snapshots = tech_agent.analyze_batch(symbols)
+
+            # Count signals
+            total_signals = sum(len(snap.signals) for snap in technical_snapshots.values())
+            bullish = sum(1 for snap in technical_snapshots.values() if snap.overall_bias.value == "Bullish")
+            bearish = sum(1 for snap in technical_snapshots.values() if snap.overall_bias.value == "Bearish")
+
+            print(f"✅ Technical analysis complete")
+            print(f"   Total signals: {total_signals}")
+            print(f"   Bullish: {bullish}, Bearish: {bearish}, Neutral: {len(symbols) - bullish - bearish}")
 
         # Save to database if requested
         if save_technicals:
             print(f"\n💾 Saving technical indicators to database...")
             tech_store = TechnicalStore()
-            for snapshot in technical_snapshots.values():
-                tech_store.save_snapshot(snapshot)
-            print(f"✅ Saved {len(technical_snapshots)} snapshots")
+            if multi_timeframe:
+                for mtf_snapshot in multi_tf_snapshots.values():
+                    tech_store.save_multi_timeframe_snapshot(mtf_snapshot)
+                print(f"✅ Saved {len(multi_tf_snapshots)} multi-timeframe snapshots")
+            else:
+                for snapshot in technical_snapshots.values():
+                    tech_store.save_snapshot(snapshot)
+                print(f"✅ Saved {len(technical_snapshots)} snapshots")
     else:
         print(f"\n📊 STEP 4: Technical Analysis")
         print("-"*100)
@@ -178,7 +215,7 @@ def run_full_analysis(
 
         # Print technical summary if available
         if technical_snapshots:
-            print_technical_summary(technical_snapshots, anomalies_report)
+            print_technical_summary(technical_snapshots, anomalies_report, multi_tf_snapshots)
 
     else:
         print("ℹ️  No anomalies detected - nothing to correlate")
@@ -188,7 +225,7 @@ def run_full_analysis(
 
         # Still print technical summary if available
         if technical_snapshots:
-            print_technical_summary(technical_snapshots, {})
+            print_technical_summary(technical_snapshots, {}, multi_tf_snapshots)
 
     # Summary
     print("\n" + "="*100)
@@ -207,11 +244,55 @@ def run_full_analysis(
     print(f"\n✅ Analysis complete at {datetime.now().strftime('%H:%M:%S')}")
 
 
-def print_technical_summary(technical_snapshots, anomalies_report):
+def print_technical_summary(technical_snapshots, anomalies_report, multi_tf_snapshots=None):
     """Print technical analysis summary"""
     print("\n" + "="*100)
     print("📊 TECHNICAL ANALYSIS SUMMARY")
     print("="*100)
+
+    # Multi-timeframe confirmation (if available)
+    if multi_tf_snapshots:
+        print(f"\n🌍 MULTI-TIMEFRAME CONFIRMATION")
+        print("="*100)
+
+        # High confirmation stocks (≥80%)
+        high_conf = [(symbol, mtf) for symbol, mtf in multi_tf_snapshots.items()
+                     if mtf.confirmation_score >= 0.8]
+
+        if high_conf:
+            print(f"\n✅ HIGH CONFIRMATION (≥80%):")
+            for symbol, mtf in sorted(high_conf, key=lambda x: x[1].confirmation_score, reverse=True):
+                daily_bias = mtf.daily.overall_bias.value
+                weekly_bias = mtf.weekly.overall_bias.value
+                daily_conf = mtf.daily.confidence * 100
+                weekly_conf = mtf.weekly.confidence * 100
+                confirmation = mtf.confirmation_score * 100
+                print(f"   {symbol:8s} Daily: {daily_bias:8s} ({daily_conf:3.0f}%) | "
+                      f"Weekly: {weekly_bias:8s} ({weekly_conf:3.0f}%) | Conf: {confirmation:3.0f}%")
+        else:
+            print(f"\n✅ HIGH CONFIRMATION (≥80%): None")
+
+        # Conflicting signals (<50%)
+        conflicting = [(symbol, mtf) for symbol, mtf in multi_tf_snapshots.items()
+                       if mtf.confirmation_score < 0.5]
+
+        if conflicting:
+            print(f"\n⚠️  CONFLICTING SIGNALS (<50%):")
+            for symbol, mtf in sorted(conflicting, key=lambda x: x[1].confirmation_score):
+                daily_bias = mtf.daily.overall_bias.value
+                weekly_bias = mtf.weekly.overall_bias.value
+                daily_conf = mtf.daily.confidence * 100
+                weekly_conf = mtf.weekly.confidence * 100
+                confirmation = mtf.confirmation_score * 100
+                print(f"   {symbol:8s} Daily: {daily_bias:8s} ({daily_conf:3.0f}%) | "
+                      f"Weekly: {weekly_bias:8s} ({weekly_conf:3.0f}%) | Conf: {confirmation:3.0f}%")
+                if mtf.conflicting_signals:
+                    for conflict in mtf.conflicting_signals:
+                        print(f"              ⚠️  {conflict}")
+        else:
+            print(f"\n⚠️  CONFLICTING SIGNALS (<50%): None")
+
+        print("\n" + "="*100)
 
     # Overbought stocks (RSI > 70)
     overbought = [(symbol, snap) for symbol, snap in technical_snapshots.items()
@@ -357,6 +438,12 @@ def main():
         help='Persist computed indicators to database'
     )
 
+    parser.add_argument(
+        '--multi-timeframe',
+        action='store_true',
+        help='Enable multi-timeframe analysis (daily + weekly)'
+    )
+
     args = parser.parse_args()
 
     run_full_analysis(
@@ -368,7 +455,8 @@ def main():
         lookback_days=args.lookback,
         skip_technicals=args.skip_technicals,
         ta_lookback=args.ta_lookback,
-        save_technicals=args.save_technicals
+        save_technicals=args.save_technicals,
+        multi_timeframe=args.multi_timeframe
     )
 
 
