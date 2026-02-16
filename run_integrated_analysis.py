@@ -8,6 +8,7 @@ from datetime import datetime
 from psx_news_agent import PSXNewsAgent
 from psx_anomaly_agent import PSXAnomalyAgent
 from psx_news_anomaly_correlator import NewsAnomalyCorrelator
+from psx_anomaly_technical_correlator import AnomalyTechnicalCorrelator
 from psx_liquidity_screener import PSXLiquidityScreener
 from psx_price_store import PSXPriceStore
 from psx_technical_agent import PSXTechnicalAgent
@@ -161,8 +162,8 @@ def run_full_analysis(
 
     if anomalies_report:
         print(f"🔍 Correlating {total_anomalies} anomalies with news...")
-        correlator = NewsAnomalyCorrelator()
-        correlations = correlator.correlate_all(anomalies_report, lookback_days=3)
+        news_correlator = NewsAnomalyCorrelator()
+        correlations = news_correlator.correlate_all(anomalies_report, lookback_days=3)
 
         explained = sum(
             1 for corrs in correlations.values()
@@ -174,21 +175,52 @@ def run_full_analysis(
         print(f"   Anomalies with news explanation (≥50%): {explained}/{total_anomalies} ({explained/total_anomalies*100:.1f}%)")
 
         # Print full correlation report
-        correlator.print_correlation_report(correlations)
-
-        # Print technical summary if available
-        if technical_snapshots:
-            print_technical_summary(technical_snapshots, anomalies_report)
+        news_correlator.print_correlation_report(correlations)
 
     else:
         print("ℹ️  No anomalies detected - nothing to correlate")
-        print("\n" + "="*100)
-        print("✅ No market anomalies detected in analyzed stocks")
-        print("="*100)
 
-        # Still print technical summary if available
-        if technical_snapshots:
-            print_technical_summary(technical_snapshots, {})
+    # Step 7: Anomaly-Technical Correlation (if both available)
+    if anomalies_report and technical_snapshots:
+        print(f"\n🔗 STEP 7: Anomaly-Technical Confluence Analysis")
+        print("-"*100)
+        print(f"🔍 Analyzing confluence between {total_anomalies} anomalies and technical signals...")
+
+        tech_correlator = AnomalyTechnicalCorrelator()
+        confluences = tech_correlator.correlate_all(anomalies_report, technical_snapshots)
+
+        actionable = sum(1 for c in confluences if c.actionable)
+        strong = sum(1 for c in confluences if c.confluence_strength.value in ["Strong", "Very Strong"])
+
+        print(f"✅ Confluence analysis complete")
+        print(f"   Total correlations: {len(confluences)}")
+        print(f"   Strong confluences: {strong}")
+        print(f"   Actionable signals: {actionable}")
+
+        # Print full confluence report
+        tech_correlator.print_confluence_report(confluences)
+
+        # Store confluence count for summary
+        confluence_count = len(confluences)
+        actionable_count = actionable
+
+    else:
+        confluence_count = 0
+        actionable_count = 0
+
+        if not anomalies_report:
+            print(f"\n🔗 STEP 7: Anomaly-Technical Confluence Analysis")
+            print("-"*100)
+            print("⏭️  Skipping confluence analysis (no anomalies detected)")
+
+        if not technical_snapshots:
+            print(f"\n🔗 STEP 7: Anomaly-Technical Confluence Analysis")
+            print("-"*100)
+            print("⏭️  Skipping confluence analysis (technical analysis disabled)")
+
+    # Print technical summary if available
+    if technical_snapshots:
+        print_technical_summary(technical_snapshots, anomalies_report)
 
     # Summary
     print("\n" + "="*100)
@@ -203,6 +235,9 @@ def run_full_analysis(
     print(f"Anomalies Detected: {total_anomalies}")
     if anomalies_report:
         print(f"News Explanations Found: {explained} ({explained/total_anomalies*100:.1f}%)")
+    if anomalies_report and technical_snapshots:
+        print(f"Anomaly-Technical Confluences: {confluence_count}")
+        print(f"Actionable Signals: {actionable_count}")
     print("="*100)
     print(f"\n✅ Analysis complete at {datetime.now().strftime('%H:%M:%S')}")
 
@@ -369,140 +404,6 @@ def main():
         skip_technicals=args.skip_technicals,
         ta_lookback=args.ta_lookback,
         save_technicals=args.save_technicals
-    )
-
-
-if __name__ == "__main__":
-    main()
-    if fetch_news:
-        print(f"\n📰 STEP 2: News Collection")
-        print("-"*100)
-        print(f"🔍 Fetching news from last {news_hours} hours...")
-
-        news_agent = PSXNewsAgent()
-        articles = news_agent.fetch_recent_news(hours=news_hours)
-        summary = news_agent.process_articles(articles)
-
-        print(f"✅ Fetched {summary.total_fetched} articles")
-        print(f"   New: {summary.new_articles}, Duplicates: {summary.duplicates}")
-        print(f"   Stock-specific: {summary.stock_news}")
-        print(f"   Macro news: {summary.macro_news}")
-    else:
-        print(f"\n📰 STEP 2: News Collection")
-        print("-"*100)
-        print("⏭️  Skipping news fetch, using existing database")
-
-    # Step 3: Anomaly detection
-    print(f"\n🔍 STEP 3: Anomaly Detection")
-    print("-"*100)
-    print(f"🔍 Analyzing {len(symbols)} stocks for anomalies...")
-    print(f"   Baseline period: {lookback_days} days")
-    print(f"   Threshold: {z_threshold}σ")
-
-    anomaly_agent = PSXAnomalyAgent(lookback_days=lookback_days, z_threshold=z_threshold)
-    anomalies_report = anomaly_agent.generate_report(symbols)
-
-    total_anomalies = sum(len(anomalies) for anomalies in anomalies_report.values())
-    print(f"✅ Detected {total_anomalies} anomalies in {len(anomalies_report)} stocks")
-
-    # Step 4: News-Anomaly Correlation
-    print(f"\n🔗 STEP 4: News-Anomaly Correlation")
-    print("-"*100)
-
-    if anomalies_report:
-        print(f"🔍 Correlating {total_anomalies} anomalies with news...")
-        correlator = NewsAnomalyCorrelator()
-        correlations = correlator.correlate_all(anomalies_report, lookback_days=3)
-
-        explained = sum(
-            1 for corrs in correlations.values()
-            for corr in corrs
-            if corr.correlation_score >= 0.5
-        )
-
-        print(f"✅ Correlation complete")
-        print(f"   Anomalies with news explanation (≥50%): {explained}/{total_anomalies} ({explained/total_anomalies*100:.1f}%)")
-
-        # Print full correlation report
-        correlator.print_correlation_report(correlations)
-
-    else:
-        print("ℹ️  No anomalies detected - nothing to correlate")
-        print("\n" + "="*100)
-        print("✅ No market anomalies detected in analyzed stocks")
-        print("="*100)
-
-    # Summary
-    print("\n" + "="*100)
-    print("📊 ANALYSIS SUMMARY")
-    print("="*100)
-    print(f"Stocks Analyzed: {len(symbols)}")
-    if fetch_news:
-        print(f"News Articles Fetched: {summary.total_fetched}")
-    print(f"Anomalies Detected: {total_anomalies}")
-    if anomalies_report:
-        print(f"News Explanations Found: {explained} ({explained/total_anomalies*100:.1f}%)")
-    print("="*100)
-    print(f"\n✅ Analysis complete at {datetime.now().strftime('%H:%M:%S')}")
-
-
-def main():
-    """CLI entry point"""
-    parser = argparse.ArgumentParser(
-        description='PSX Integrated Analysis - News, Anomalies, and Correlations'
-    )
-
-    parser.add_argument(
-        '--stocks',
-        type=str,
-        default='liquid',
-        choices=['liquid', 'preset'],
-        help='Stock selection method: liquid (screener) or preset (hardcoded list)'
-    )
-
-    parser.add_argument(
-        '--top',
-        type=int,
-        default=30,
-        help='Number of top liquid stocks to analyze (default: 30)'
-    )
-
-    parser.add_argument(
-        '--skip-news',
-        action='store_true',
-        help='Skip news fetching, use existing database'
-    )
-
-    parser.add_argument(
-        '--news-hours',
-        type=int,
-        default=48,
-        help='Hours to look back for news (default: 48)'
-    )
-
-    parser.add_argument(
-        '--z-threshold',
-        type=float,
-        default=2.5,
-        help='Z-score threshold for anomaly detection (default: 2.5)'
-    )
-
-    parser.add_argument(
-        '--lookback',
-        type=int,
-        default=60,
-        help='Days to look back for baseline (default: 60)'
-    )
-
-    args = parser.parse_args()
-
-    run_full_analysis(
-        use_liquid_stocks=(args.stocks == 'liquid'),
-        top_n=args.top,
-        fetch_news=(not args.skip_news),
-        news_hours=args.news_hours,
-        z_threshold=args.z_threshold,
-        lookback_days=args.lookback
     )
 
 
