@@ -350,34 +350,55 @@ class PSXAnnouncementScraper:
         """
         Parse announcements from company page HTML
 
-        Company pages may have different layouts:
-        - Table with announcement rows
-        - List of announcement items
-        - Cards/divs for each announcement
+        PSX company pages have standard structure:
+        - Tables with headers: ['Date', 'Title', 'Document']
+        - Three categories: Financial Results, Board Meetings, Others
         """
         announcements = []
 
-        # Strategy 1: Look for tables with class/id containing "announcement"
-        announcement_tables = soup.find_all('table', class_=re.compile(r'announcement|company-ann', re.I))
-        announcement_tables.extend(soup.find_all('table', id=re.compile(r'announcement|company-ann', re.I)))
+        # Strategy 1: Look for tables with PSX standard structure
+        # Headers: ['Date', 'Title', 'Document']
+        psx_announcement_tables = self._find_psx_announcement_tables(soup)
 
-        for table in announcement_tables:
-            rows = table.find_all('tr')
+        if psx_announcement_tables:
+            for table in psx_announcement_tables:
+                rows = table.find_all('tr')
 
-            for row in rows[1:]:  # Skip header
-                try:
-                    cols = row.find_all('td')
-                    if len(cols) >= 2:  # Need at least date and title
-                        announcement = self._parse_announcement_row(cols, row)
+                for row in rows[1:]:  # Skip header
+                    try:
+                        cols = row.find_all('td')
+                        if len(cols) >= 3:  # Date, Title, Document
+                            announcement = self._parse_psx_company_row(cols, symbol)
 
-                        if announcement and announcement.announcement_date >= cutoff_date:
-                            # Override symbol (row parsing might get it wrong)
-                            announcement.symbol = symbol
-                            announcements.append(announcement)
+                            if announcement and announcement.announcement_date >= cutoff_date:
+                                announcements.append(announcement)
 
-                except Exception as e:
-                    logger.debug(f"Failed to parse announcement row: {e}")
-                    continue
+                    except Exception as e:
+                        logger.debug(f"Failed to parse PSX announcement row: {e}")
+                        continue
+
+        # Strategy 1b: Fallback for older table structures
+        if not announcements:
+            announcement_tables = soup.find_all('table', class_=re.compile(r'announcement|company-ann', re.I))
+            announcement_tables.extend(soup.find_all('table', id=re.compile(r'announcement|company-ann', re.I)))
+
+            for table in announcement_tables:
+                rows = table.find_all('tr')
+
+                for row in rows[1:]:  # Skip header
+                    try:
+                        cols = row.find_all('td')
+                        if len(cols) >= 2:  # Need at least date and title
+                            announcement = self._parse_announcement_row(cols, row)
+
+                            if announcement and announcement.announcement_date >= cutoff_date:
+                                # Override symbol (row parsing might get it wrong)
+                                announcement.symbol = symbol
+                                announcements.append(announcement)
+
+                    except Exception as e:
+                        logger.debug(f"Failed to parse announcement row: {e}")
+                        continue
 
         # Strategy 2: Look for divs/sections with announcements
         if not announcements:
@@ -399,6 +420,7 @@ class PSXAnnouncementScraper:
                         continue
 
         # Strategy 3: Look for any recent date + text patterns (fallback)
+        # IMPORTANT: Exclude market indices (class: topIndices)
         if not announcements:
             # Find all elements that might contain dates
             date_pattern = re.compile(r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2}')
@@ -406,34 +428,140 @@ class PSXAnnouncementScraper:
             for elem in soup.find_all(text=date_pattern):
                 try:
                     parent = elem.parent
-                    if parent:
-                        date_text = elem.strip()
-                        announcement_date = self._parse_date(date_text)
+                    if not parent:
+                        continue
 
-                        if announcement_date and announcement_date >= cutoff_date:
-                            # Try to find title/description near this date
-                            title = self._extract_nearby_text(parent)
+                    # EXCLUDE market indices carousel
+                    if self._is_market_index_element(parent):
+                        continue
 
-                            if title and len(title) > 10:
-                                announcement_id = self._generate_announcement_id(
-                                    symbol, announcement_date, title
-                                )
+                    date_text = elem.strip()
+                    announcement_date = self._parse_date(date_text)
 
-                                announcements.append(RawAnnouncement(
-                                    announcement_id=announcement_id,
-                                    symbol=symbol,
-                                    announcement_date=announcement_date,
-                                    title=title,
-                                    description=title,
-                                    source_url=f"{self.PSX_BASE_URL}/company/{symbol}",
-                                    source="PSX_Company_Page"
-                                ))
+                    if announcement_date and announcement_date >= cutoff_date:
+                        # Try to find title/description near this date
+                        title = self._extract_nearby_text(parent)
+
+                        if title and len(title) > 10:
+                            announcement_id = self._generate_announcement_id(
+                                symbol, announcement_date, title
+                            )
+
+                            announcements.append(RawAnnouncement(
+                                announcement_id=announcement_id,
+                                symbol=symbol,
+                                announcement_date=announcement_date,
+                                title=title,
+                                description=title,
+                                source_url=f"{self.PSX_BASE_URL}/company/{symbol}",
+                                source="PSX_Company_Page"
+                            ))
 
                 except Exception as e:
                     logger.debug(f"Failed to parse date-based announcement: {e}")
                     continue
 
         return announcements
+
+    def _find_psx_announcement_tables(self, soup: BeautifulSoup) -> List:
+        """
+        Find tables with PSX standard announcement structure
+
+        PSX company pages use tables with headers: ['Date', 'Title', 'Document']
+        """
+        tables_with_announcements = []
+
+        all_tables = soup.find_all('table')
+
+        for table in all_tables:
+            # Check if table has the standard PSX announcement headers
+            headers = table.find_all('th')
+            header_texts = [h.get_text(strip=True).lower() for h in headers]
+
+            # PSX standard: Date, Title, Document
+            if 'date' in header_texts and 'title' in header_texts and 'document' in header_texts:
+                tables_with_announcements.append(table)
+
+        return tables_with_announcements
+
+    def _parse_psx_company_row(self, cols, symbol: str) -> Optional[RawAnnouncement]:
+        """
+        Parse announcement row from PSX standard table structure
+
+        Expected columns:
+        [0] Date (e.g., "Feb 16, 2026")
+        [1] Title (e.g., "Financial Results for Q1 2026")
+        [2] Document (contains View/PDF links)
+        """
+        try:
+            # Column 0: Date
+            date_text = cols[0].get_text(strip=True)
+            announcement_date = self._parse_date(date_text)
+
+            if not announcement_date:
+                return None
+
+            # Column 1: Title
+            title = cols[1].get_text(strip=True)
+
+            if not title or len(title) < 5:
+                return None
+
+            # Column 2: Document (PDF link)
+            attachment_url = None
+            pdf_link = cols[2].find('a', href=re.compile(r'\.pdf$', re.I))
+
+            if pdf_link:
+                href = pdf_link.get('href', '')
+                attachment_url = self._resolve_url(href)
+
+            # Generate unique ID
+            announcement_id = self._generate_announcement_id(
+                symbol, announcement_date, title
+            )
+
+            return RawAnnouncement(
+                announcement_id=announcement_id,
+                symbol=symbol,
+                announcement_date=announcement_date,
+                title=title,
+                description=title,  # Full description is usually in PDF
+                attachment_url=attachment_url,
+                source_url=f"{self.PSX_BASE_URL}/company/{symbol}",
+                source="PSX_Company_Page"
+            )
+
+        except Exception as e:
+            logger.debug(f"Failed to parse PSX company row: {e}")
+            return None
+
+    def _is_market_index_element(self, element) -> bool:
+        """
+        Check if element is part of market indices carousel (not an announcement)
+
+        Market indices have class patterns like:
+        - topIndices
+        - topIndices__item
+        - topIndices__item__date
+        """
+        # Check element and all parents
+        current = element
+        depth = 0
+
+        while current and depth < 5:
+            element_class = current.get('class', [])
+
+            if element_class:
+                class_str = ' '.join(element_class).lower()
+
+                # Market index indicators
+                if any(keyword in class_str for keyword in ['topindices', 'index', 'glide']):
+                    return True
+
+            current = current.parent
+            depth += 1
+
+        return False
 
     def _parse_company_announcement_item(
         self,
