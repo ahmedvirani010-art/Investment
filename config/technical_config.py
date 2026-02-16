@@ -105,6 +105,7 @@ class StrategyConfig:
     moderate_signal_threshold: float = 0.50
 
     # Ensemble aggregation
+    ensemble_min_confidence: float = 0.35  # Minimum confidence for non-neutral signal
     ensemble_bullish_threshold: float = 0.3   # Score > 0.3 = bullish
     ensemble_bearish_threshold: float = -0.3  # Score < -0.3 = bearish
 
