@@ -10,6 +10,14 @@ from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
+# Optional import for divergence detection
+try:
+    from psx_divergence_detector import Divergence
+    DIVERGENCE_AVAILABLE = True
+except ImportError:
+    DIVERGENCE_AVAILABLE = False
+    Divergence = None
+
 
 class SignalType(Enum):
     """Type of technical signal"""
@@ -49,6 +57,7 @@ class TechnicalSnapshot:
     overall_bias: SignalType = SignalType.NEUTRAL
     confidence: float = 0.0  # 0.0-1.0 based on signal agreement
     indicator_values: Dict[str, float] = field(default_factory=dict)
+    divergences: List = field(default_factory=list)  # List[Divergence] if available
 
 
 @dataclass
@@ -74,14 +83,16 @@ class PSXTechnicalAgent:
     - Volume: OBV
     """
 
-    def __init__(self, price_store):
+    def __init__(self, price_store, divergence_detector=None):
         """
         Initialize technical agent
 
         Args:
             price_store: PSXPriceStore instance for reading price data
+            divergence_detector: Optional PSXDivergenceDetector instance
         """
         self.price_store = price_store
+        self.divergence_detector = divergence_detector
 
     def analyze_symbol(self, symbol: str) -> TechnicalSnapshot:
         """
@@ -152,6 +163,57 @@ class PSXTechnicalAgent:
         if not pd.isna(obv_value):
             indicator_values['OBV'] = obv_value
 
+        # Divergence detection (if detector is available)
+        divergences = []
+        if self.divergence_detector and DIVERGENCE_AVAILABLE:
+            # Add RSI and MACD to dataframe for divergence detection
+            df_with_indicators = df.copy()
+            df_with_indicators['RSI'] = pd.Series(dtype=float)
+            df_with_indicators['MACD'] = pd.Series(dtype=float)
+
+            # Compute RSI for entire dataframe
+            if len(df) >= 14:
+                delta = df['Close'].diff()
+                gains = delta.where(delta > 0, 0)
+                losses = -delta.where(delta < 0, 0)
+                avg_gains = gains.rolling(window=14, min_periods=14).mean()
+                avg_losses = losses.rolling(window=14, min_periods=14).mean()
+                rs = avg_gains / avg_losses
+                df_with_indicators['RSI'] = 100 - (100 / (1 + rs))
+
+            # Compute MACD for entire dataframe
+            if len(df) >= 35:
+                ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+                ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+                df_with_indicators['MACD'] = ema12 - ema26
+
+            # Detect divergences
+            try:
+                divergences = self.divergence_detector.detect_all_divergences(symbol, df_with_indicators)
+
+                # Convert divergences to signals for aggregation
+                for div in divergences:
+                    # Bullish divergences are oversold-like signals (reversal up expected)
+                    if "Bullish" in div.divergence_type.value:
+                        signal_type = SignalType.OVERSOLD
+                    # Bearish divergences are overbought-like signals (reversal down expected)
+                    else:
+                        signal_type = SignalType.OVERBOUGHT
+
+                    signal_strength = SignalStrength.STRONG if div.strength == "Strong" else SignalStrength.MODERATE
+
+                    signals.append(TechnicalSignal(
+                        symbol=symbol,
+                        date=latest_date,
+                        indicator="Divergence",
+                        signal_type=signal_type,
+                        strength=signal_strength,
+                        value=0.0,  # Divergence doesn't have a single value
+                        description=div.divergence_type.value
+                    ))
+            except Exception as e:
+                print(f"  Warning: Error detecting divergences for {symbol}: {str(e)}")
+
         # Aggregate signals into overall bias
         overall_bias, confidence = self._aggregate_signals(signals)
 
@@ -161,7 +223,8 @@ class PSXTechnicalAgent:
             signals=signals,
             overall_bias=overall_bias,
             confidence=confidence,
-            indicator_values=indicator_values
+            indicator_values=indicator_values,
+            divergences=divergences
         )
 
     def analyze_batch(self, symbols: List[str]) -> Dict[str, TechnicalSnapshot]:

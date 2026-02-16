@@ -12,6 +12,15 @@ from psx_liquidity_screener import PSXLiquidityScreener
 from psx_price_store import PSXPriceStore
 from psx_technical_agent import PSXTechnicalAgent
 from psx_technical_store import TechnicalStore
+
+# Optional divergence detection
+try:
+    from psx_divergence_detector import PSXDivergenceDetector
+    DIVERGENCE_AVAILABLE = True
+except ImportError:
+    DIVERGENCE_AVAILABLE = False
+    PSXDivergenceDetector = None
+
 import argparse
 
 
@@ -25,7 +34,8 @@ def run_full_analysis(
     skip_technicals: bool = False,
     ta_lookback: int = 250,
     save_technicals: bool = False,
-    multi_timeframe: bool = False
+    multi_timeframe: bool = False,
+    skip_divergences: bool = False
 ):
     """
     Run complete integrated analysis
@@ -41,6 +51,7 @@ def run_full_analysis(
         ta_lookback: Days of price history for indicators (default: 250)
         save_technicals: Persist computed indicators to database
         multi_timeframe: Enable multi-timeframe analysis (daily + weekly)
+        skip_divergences: Skip divergence detection (enabled by default)
     """
 
     print("="*100)
@@ -124,9 +135,15 @@ def run_full_analysis(
         print(f"\n📊 STEP 4: Technical Analysis")
         print("-"*100)
 
+        # Initialize divergence detector if available and not skipped
+        divergence_detector = None
+        if not skip_divergences and DIVERGENCE_AVAILABLE:
+            divergence_detector = PSXDivergenceDetector(lookback_days=30, window=5, min_prominence=0.02)
+            print(f"🔍 Divergence detection enabled")
+
         if multi_timeframe:
             print(f"🔍 Computing multi-timeframe analysis (daily + weekly) for {len(symbols)} stocks...")
-            tech_agent = PSXTechnicalAgent(price_store)
+            tech_agent = PSXTechnicalAgent(price_store, divergence_detector)
 
             # Analyze each symbol with multi-timeframe
             for symbol in symbols:
@@ -149,7 +166,7 @@ def run_full_analysis(
             print(f"   High confirmation (≥80%): {high_conf}/{len(symbols)}")
         else:
             print(f"🔍 Computing technical indicators for {len(symbols)} stocks...")
-            tech_agent = PSXTechnicalAgent(price_store)
+            tech_agent = PSXTechnicalAgent(price_store, divergence_detector)
             technical_snapshots = tech_agent.analyze_batch(symbols)
 
             # Count signals
@@ -293,6 +310,45 @@ def print_technical_summary(technical_snapshots, anomalies_report, multi_tf_snap
             print(f"\n⚠️  CONFLICTING SIGNALS (<50%): None")
 
         print("\n" + "="*100)
+
+    # Divergences detected
+    divergence_stocks = [(symbol, snap) for symbol, snap in technical_snapshots.items()
+                         if hasattr(snap, 'divergences') and snap.divergences]
+
+    if divergence_stocks:
+        print(f"\n🔄 DIVERGENCES DETECTED")
+        print("="*100)
+
+        for symbol, snap in divergence_stocks:
+            for div in snap.divergences:
+                # Emoji for divergence type
+                if "Bullish" in div.divergence_type.value:
+                    emoji = "🟢"  # Bullish (reversal up)
+                else:
+                    emoji = "🔴"  # Bearish (reversal down)
+
+                strength_marker = "⚡" if div.strength == "Strong" else "○"
+
+                print(f"\n   {emoji} {symbol:8s} {div.divergence_type.value} ({div.strength}) {strength_marker}")
+                print(f"              {div.description}")
+
+                # Show price peaks
+                if div.price_peaks and len(div.price_peaks) >= 2:
+                    p1_date, p1_val = div.price_peaks[0]
+                    p2_date, p2_val = div.price_peaks[1]
+                    print(f"              Price: {p1_val:.2f} ({p1_date}) → {p2_val:.2f} ({p2_date})")
+
+                # Show indicator peaks
+                if div.indicator_peaks and len(div.indicator_peaks) >= 2:
+                    i1_date, i1_val = div.indicator_peaks[0]
+                    i2_date, i2_val = div.indicator_peaks[1]
+                    indicator_name = "RSI" if "RSI" in div.divergence_type.value else "MACD"
+                    print(f"              {indicator_name}: {i1_val:.2f} ({i1_date}) → {i2_val:.2f} ({i2_date})")
+
+        print("\n" + "="*100)
+    else:
+        print(f"\n🔄 DIVERGENCES DETECTED: None")
+        print("="*100)
 
     # Overbought stocks (RSI > 70)
     overbought = [(symbol, snap) for symbol, snap in technical_snapshots.items()
@@ -444,6 +500,12 @@ def main():
         help='Enable multi-timeframe analysis (daily + weekly)'
     )
 
+    parser.add_argument(
+        '--skip-divergences',
+        action='store_true',
+        help='Skip divergence detection (enabled by default)'
+    )
+
     args = parser.parse_args()
 
     run_full_analysis(
@@ -456,7 +518,8 @@ def main():
         skip_technicals=args.skip_technicals,
         ta_lookback=args.ta_lookback,
         save_technicals=args.save_technicals,
-        multi_timeframe=args.multi_timeframe
+        multi_timeframe=args.multi_timeframe,
+        skip_divergences=args.skip_divergences
     )
 
 

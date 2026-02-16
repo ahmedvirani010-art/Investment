@@ -116,6 +116,32 @@ class TechnicalStore:
                 ON multi_timeframe_snapshots(confirmation_score DESC)
             ''')
 
+            # Divergences table (price vs indicator divergences)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS divergences (
+                    symbol TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    divergence_type TEXT NOT NULL,
+                    strength TEXT NOT NULL,
+                    price_peaks TEXT,
+                    indicator_peaks TEXT,
+                    description TEXT,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (symbol, date, divergence_type)
+                )
+            ''')
+
+            # Create indexes for divergences
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_div_symbol
+                ON divergences(symbol)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_div_type
+                ON divergences(divergence_type)
+            ''')
+
             conn.commit()
 
     def save_snapshot(self, snapshot: TechnicalSnapshot):
@@ -190,6 +216,10 @@ class TechnicalStore:
                     ))
 
             conn.commit()
+
+        # Also save divergences if present
+        if hasattr(snapshot, 'divergences') and snapshot.divergences:
+            self._save_divergences(snapshot)
 
     def get_snapshot(self, symbol: str, date: str = None) -> Optional[TechnicalSnapshot]:
         """
@@ -557,6 +587,142 @@ class TechnicalStore:
                     WHERE m.confirmation_score >= ?
                     ORDER BY m.confirmation_score DESC
                 ''', (min_score,))
+
+            return cursor.fetchall()
+
+    # ===================================================================
+    # DIVERGENCE STORAGE
+    # ===================================================================
+
+    def _save_divergences(self, snapshot: TechnicalSnapshot):
+        """
+        Save divergences from a snapshot
+
+        Args:
+            snapshot: TechnicalSnapshot with divergences
+        """
+        if not snapshot.divergences:
+            return
+
+        computed_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            for divergence in snapshot.divergences:
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO divergences
+                        (symbol, date, divergence_type, strength, price_peaks, indicator_peaks, description, computed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        divergence.symbol,
+                        divergence.date,
+                        divergence.divergence_type.value,
+                        divergence.strength,
+                        json.dumps(divergence.price_peaks),
+                        json.dumps(divergence.indicator_peaks),
+                        divergence.description,
+                        computed_at
+                    ))
+                except Exception as e:
+                    print(f"  Warning: Error saving divergence for {snapshot.symbol}: {str(e)}")
+
+            conn.commit()
+
+    def get_divergences(self, symbol: str, days: int = 30) -> List[Tuple]:
+        """
+        Get divergences for a symbol
+
+        Args:
+            symbol: Stock symbol
+            days: Number of days to look back
+
+        Returns:
+            List of tuples: (date, divergence_type, strength, description)
+        """
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, divergence_type, strength, description
+                FROM divergences
+                WHERE symbol = ? AND date >= ?
+                ORDER BY date DESC
+            ''', (symbol, cutoff_date))
+
+            return cursor.fetchall()
+
+    def get_bullish_divergences(self, date: str = None) -> List[Tuple[str, str, str]]:
+        """
+        Get all bullish divergences (reversal up signals)
+
+        Args:
+            date: Specific date to query. If None, uses latest.
+
+        Returns:
+            List of tuples: (symbol, date, divergence_type)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT symbol, date, divergence_type
+                    FROM divergences
+                    WHERE date = ? AND divergence_type LIKE 'Bullish%'
+                    ORDER BY symbol
+                ''', (date,))
+            else:
+                # Get latest divergences for each symbol
+                cursor.execute('''
+                    SELECT d.symbol, d.date, d.divergence_type
+                    FROM divergences d
+                    INNER JOIN (
+                        SELECT symbol, MAX(date) as max_date
+                        FROM divergences
+                        GROUP BY symbol
+                    ) latest ON d.symbol = latest.symbol AND d.date = latest.max_date
+                    WHERE d.divergence_type LIKE 'Bullish%'
+                    ORDER BY d.symbol
+                ''')
+
+            return cursor.fetchall()
+
+    def get_bearish_divergences(self, date: str = None) -> List[Tuple[str, str, str]]:
+        """
+        Get all bearish divergences (reversal down signals)
+
+        Args:
+            date: Specific date to query. If None, uses latest.
+
+        Returns:
+            List of tuples: (symbol, date, divergence_type)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT symbol, date, divergence_type
+                    FROM divergences
+                    WHERE date = ? AND divergence_type LIKE 'Bearish%'
+                    ORDER BY symbol
+                ''', (date,))
+            else:
+                # Get latest divergences for each symbol
+                cursor.execute('''
+                    SELECT d.symbol, d.date, d.divergence_type
+                    FROM divergences d
+                    INNER JOIN (
+                        SELECT symbol, MAX(date) as max_date
+                        FROM divergences
+                        GROUP BY symbol
+                    ) latest ON d.symbol = latest.symbol AND d.date = latest.max_date
+                    WHERE d.divergence_type LIKE 'Bearish%'
+                    ORDER BY d.symbol
+                ''')
 
             return cursor.fetchall()
 
