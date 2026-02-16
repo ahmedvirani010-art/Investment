@@ -109,6 +109,13 @@ class StrategyConfig:
     ensemble_bullish_threshold: float = 0.3   # Score > 0.3 = bullish
     ensemble_bearish_threshold: float = -0.3  # Score < -0.3 = bearish
 
+    # Group-based aggregation (hierarchical conflict resolution)
+    use_group_based_aggregation: bool = True  # Enable hierarchical grouping
+    high_vol_trend_weight: float = 0.65      # Favor trend group in trending markets (HIGH_VOL)
+    low_vol_reversion_weight: float = 0.65   # Favor reversion group in ranging markets (LOW_VOL)
+    conflict_confidence_damping: float = 0.7  # Reduce confidence during group conflicts
+    agreement_bonus: float = 1.2              # Boost confidence when groups agree
+
 
 @dataclass
 class TechnicalAgentConfig:
