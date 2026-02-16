@@ -1,0 +1,128 @@
+================================================================================
+DAILY TECHNICAL ANALYSIS REPORT
+Date: 2026-02-16
+Generated: 2026-02-16 06:06:55
+================================================================================
+
+SUMMARY
+--------------------------------------------------------------------------------
+Total Analyzed:  9
+Bullish:         0 (0.0%)
+Bearish:         0 (0.0%)
+Neutral:         9 (100.0%)
+Alerts:          0
+
+TOP SIGNALS
+--------------------------------------------------------------------------------
+
+Bullish (0):
+
+Bearish (0):
+
+================================================================================
+DETAILED RESULTS
+================================================================================
+
+FFC
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Neutral      (30%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+
+HBL
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Neutral      (30%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+
+HUBC
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Neutral      (30%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+
+LUCK
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Bullish      (73%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+
+MCB
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Neutral      (30%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+
+OGDC
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Bullish      (71%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+
+PPL
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     UNKNOWN
+  Strategies:
+
+PSO
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Neutral      (30%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+
+UBL
+  Signal:     Neutral
+  Confidence: 0%
+  Score:      +0.000
+  Regime:     NORMAL
+  Strategies:
+    - TrendFollowing           : Neutral      (0%)
+    - MeanReversion            : Neutral      (30%)
+    - Momentum                 : Neutral      (30%)
+    - Volatility               : Neutral      (30%)
+    - StatisticalArbitrage     : Neutral      (20%)
+

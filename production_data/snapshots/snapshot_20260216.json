@@ -1,0 +1,374 @@
+{
+  "FFC": {
+    "symbol": "FFC",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 579.5800170898438,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  },
+  "HBL": {
+    "symbol": "HBL",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 323.19000244140625,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  },
+  "HUBC": {
+    "symbol": "HUBC",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 222.0500030517578,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  },
+  "LUCK": {
+    "symbol": "LUCK",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Bullish",
+        "confidence": 0.7328532181065548,
+        "strength": "Moderate"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 460.8599853515625,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  },
+  "MCB": {
+    "symbol": "MCB",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 412.8299865722656,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  },
+  "OGDC": {
+    "symbol": "OGDC",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Bullish",
+        "confidence": 0.7090075158727498,
+        "strength": "Moderate"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 294.739990234375,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  },
+  "PPL": {
+    "symbol": "PPL",
+    "date": "2026-02-16",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "UNKNOWN",
+    "strategy_signals": [],
+    "indicator_values": {
+      "error": "insufficient_data"
+    }
+  },
+  "PSO": {
+    "symbol": "PSO",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 454.45001220703125,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  },
+  "UBL": {
+    "symbol": "UBL",
+    "date": "2026-02-13",
+    "overall_bias": "Neutral",
+    "confidence": 0.0,
+    "ensemble_score": 0.0,
+    "regime": "NORMAL",
+    "strategy_signals": [
+      {
+        "strategy_name": "TrendFollowing",
+        "signal_type": "Neutral",
+        "confidence": 0.0,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "MeanReversion",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Momentum",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "Volatility",
+        "signal_type": "Neutral",
+        "confidence": 0.3,
+        "strength": "Weak"
+      },
+      {
+        "strategy_name": "StatisticalArbitrage",
+        "signal_type": "Neutral",
+        "confidence": 0.2,
+        "strength": "Weak"
+      }
+    ],
+    "indicator_values": {
+      "price": 479.9800109863281,
+      "ensemble_score": 0.0,
+      "signal_agreement": 0.0
+    }
+  }
+}

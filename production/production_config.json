@@ -1,0 +1,59 @@
+{
+  "watchlist": {
+    "blue_chips": [
+      "PPL",
+      "OGDC",
+      "PSO",
+      "ENGRO",
+      "LUCK",
+      "MCB",
+      "HBL",
+      "UBL",
+      "FFC",
+      "HUBC"
+    ],
+    "custom": []
+  },
+  "alerts": {
+    "min_confidence": 0.7,
+    "min_score": 0.5,
+    "alert_on_bullish": true,
+    "alert_on_bearish": true,
+    "alert_on_neutral": false,
+    "alert_on_change": true,
+    "enable_console": true,
+    "enable_email": false,
+    "enable_file": true,
+    "email_from": null,
+    "email_to": [],
+    "smtp_server": null,
+    "smtp_port": 587,
+    "smtp_username": null
+  },
+  "schedule": {
+    "run_hour": 18,
+    "run_minute": 0,
+    "run_days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "history_days": 200,
+    "max_retries": 3,
+    "retry_delay_seconds": 60
+  },
+  "storage": {
+    "base_dir": "production_data",
+    "results_dir": "results",
+    "snapshots_dir": "snapshots",
+    "alerts_dir": "alerts",
+    "logs_dir": "logs",
+    "results_retention_days": 90,
+    "logs_retention_days": 30,
+    "use_database": true,
+    "database_path": "production_data/signals.db"
+  },
+  "environment": "production"
+}

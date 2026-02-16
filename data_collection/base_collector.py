@@ -202,6 +202,10 @@ class BaseDataCollector(ABC):
         if 'Volume' in df.columns:
             df['Volume'] = df['Volume'].apply(self._parse_volume)
 
+        # Remove timezone if present (for consistent comparison)
+        if hasattr(df.index, 'tz') and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+
         # Sort by date
         df = df.sort_index()
 

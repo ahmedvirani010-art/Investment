@@ -97,6 +97,10 @@ class DataCollectionManager:
             cached = self._load_from_cache(symbol)
 
             if cached is not None:
+                # Ensure timezone-naive for comparison
+                if cached.index.tz is not None:
+                    cached.index = cached.index.tz_localize(None)
+
                 # Filter to requested date range
                 cached = cached[(cached.index >= start_date) & (cached.index <= end_date)]
 
