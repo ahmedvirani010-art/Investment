@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Tuple
 from pathlib import Path
-from psx_technical_agent import TechnicalSnapshot, TechnicalSignal, SignalType, SignalStrength
+from psx_technical_agent import TechnicalSnapshot, TechnicalSignal, SignalType, SignalStrength, MultiTimeframeSnapshot
 
 
 class TechnicalStore:
@@ -88,6 +88,88 @@ class TechnicalStore:
                 ON technical_snapshots(overall_bias)
             ''')
 
+            # Multi-timeframe snapshots table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS multi_timeframe_snapshots (
+                    symbol TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    daily_bias TEXT NOT NULL,
+                    weekly_bias TEXT NOT NULL,
+                    confirmation_score REAL NOT NULL,
+                    daily_confidence REAL,
+                    weekly_confidence REAL,
+                    aligned_signals TEXT,
+                    conflicting_signals TEXT,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (symbol, date)
+                )
+            ''')
+
+            # Create indexes for multi-timeframe data
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_mtf_symbol
+                ON multi_timeframe_snapshots(symbol)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_mtf_confirmation
+                ON multi_timeframe_snapshots(confirmation_score DESC)
+            ''')
+
+            # Divergences table (price vs indicator divergences)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS divergences (
+                    symbol TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    divergence_type TEXT NOT NULL,
+                    strength TEXT NOT NULL,
+                    price_peaks TEXT,
+                    indicator_peaks TEXT,
+                    description TEXT,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (symbol, date, divergence_type)
+                )
+            ''')
+
+            # Create indexes for divergences
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_div_symbol
+                ON divergences(symbol)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_div_type
+                ON divergences(divergence_type)
+            ''')
+
+            # Chart patterns table (H&S, double tops/bottoms)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS chart_patterns (
+                    symbol TEXT NOT NULL,
+                    pattern_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    key_points TEXT,
+                    neckline REAL,
+                    target_price REAL,
+                    description TEXT,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (symbol, pattern_type, start_date)
+                )
+            ''')
+
+            # Create indexes for patterns
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_pattern_symbol
+                ON chart_patterns(symbol)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_pattern_status
+                ON chart_patterns(status)
+            ''')
+
             conn.commit()
 
     def save_snapshot(self, snapshot: TechnicalSnapshot):
@@ -162,6 +244,14 @@ class TechnicalStore:
                     ))
 
             conn.commit()
+
+        # Also save divergences if present
+        if hasattr(snapshot, 'divergences') and snapshot.divergences:
+            self._save_divergences(snapshot)
+
+        # Also save patterns if present
+        if hasattr(snapshot, 'patterns') and snapshot.patterns:
+            self._save_patterns(snapshot)
 
     def get_snapshot(self, symbol: str, date: str = None) -> Optional[TechnicalSnapshot]:
         """
@@ -399,6 +489,392 @@ class TechnicalStore:
                 'latest_date': date_range[1],
                 'bias_counts': bias_counts
             }
+
+    # ===================================================================
+    # MULTI-TIMEFRAME ANALYSIS STORAGE
+    # ===================================================================
+
+    def save_multi_timeframe_snapshot(self, snapshot: MultiTimeframeSnapshot):
+        """
+        Save multi-timeframe analysis snapshot
+
+        Args:
+            snapshot: MultiTimeframeSnapshot object with daily and weekly analysis
+        """
+        computed_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                INSERT OR REPLACE INTO multi_timeframe_snapshots
+                (symbol, date, daily_bias, weekly_bias, confirmation_score,
+                 daily_confidence, weekly_confidence, aligned_signals, conflicting_signals, computed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                snapshot.symbol,
+                snapshot.date,
+                snapshot.daily.overall_bias.value,
+                snapshot.weekly.overall_bias.value,
+                snapshot.confirmation_score,
+                snapshot.daily.confidence,
+                snapshot.weekly.confidence,
+                json.dumps(snapshot.aligned_signals),
+                json.dumps(snapshot.conflicting_signals),
+                computed_at
+            ))
+
+            conn.commit()
+
+        # Also save the individual daily and weekly snapshots
+        self.save_snapshot(snapshot.daily)
+        self.save_snapshot(snapshot.weekly)
+
+    def get_multi_timeframe_snapshot(self, symbol: str, date: str = None) -> Optional[MultiTimeframeSnapshot]:
+        """
+        Retrieve multi-timeframe snapshot for a specific date
+
+        Args:
+            symbol: Stock symbol
+            date: Date (ISO format). If None, gets latest.
+
+        Returns:
+            MultiTimeframeSnapshot or None
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT date, daily_bias, weekly_bias, confirmation_score,
+                           daily_confidence, weekly_confidence, aligned_signals, conflicting_signals
+                    FROM multi_timeframe_snapshots
+                    WHERE symbol = ? AND date = ?
+                ''', (symbol, date))
+            else:
+                cursor.execute('''
+                    SELECT date, daily_bias, weekly_bias, confirmation_score,
+                           daily_confidence, weekly_confidence, aligned_signals, conflicting_signals
+                    FROM multi_timeframe_snapshots
+                    WHERE symbol = ?
+                    ORDER BY date DESC
+                    LIMIT 1
+                ''', (symbol,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            (snapshot_date, daily_bias, weekly_bias, confirmation_score,
+             daily_confidence, weekly_confidence, aligned_signals_json, conflicting_signals_json) = row
+
+        # Get the full daily and weekly snapshots
+        daily_snapshot = self.get_snapshot(symbol, snapshot_date)
+        weekly_snapshot = self.get_snapshot(symbol, snapshot_date)
+
+        if not daily_snapshot or not weekly_snapshot:
+            return None
+
+        return MultiTimeframeSnapshot(
+            symbol=symbol,
+            date=snapshot_date,
+            daily=daily_snapshot,
+            weekly=weekly_snapshot,
+            confirmation_score=confirmation_score,
+            aligned_signals=json.loads(aligned_signals_json),
+            conflicting_signals=json.loads(conflicting_signals_json)
+        )
+
+    def get_high_confirmation_stocks(self, min_score: float = 0.8, date: str = None) -> List[Tuple[str, float, str, str]]:
+        """
+        Get stocks with high multi-timeframe confirmation scores
+
+        Args:
+            min_score: Minimum confirmation score (0.0-1.0)
+            date: Specific date to query. If None, uses latest for each stock.
+
+        Returns:
+            List of tuples: (symbol, confirmation_score, daily_bias, weekly_bias)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT symbol, confirmation_score, daily_bias, weekly_bias
+                    FROM multi_timeframe_snapshots
+                    WHERE date = ? AND confirmation_score >= ?
+                    ORDER BY confirmation_score DESC
+                ''', (date, min_score))
+            else:
+                # Get latest snapshot for each symbol with high confirmation
+                cursor.execute('''
+                    SELECT m.symbol, m.confirmation_score, m.daily_bias, m.weekly_bias
+                    FROM multi_timeframe_snapshots m
+                    INNER JOIN (
+                        SELECT symbol, MAX(date) as max_date
+                        FROM multi_timeframe_snapshots
+                        GROUP BY symbol
+                    ) latest ON m.symbol = latest.symbol AND m.date = latest.max_date
+                    WHERE m.confirmation_score >= ?
+                    ORDER BY m.confirmation_score DESC
+                ''', (min_score,))
+
+            return cursor.fetchall()
+
+    # ===================================================================
+    # DIVERGENCE STORAGE
+    # ===================================================================
+
+    def _save_divergences(self, snapshot: TechnicalSnapshot):
+        """
+        Save divergences from a snapshot
+
+        Args:
+            snapshot: TechnicalSnapshot with divergences
+        """
+        if not snapshot.divergences:
+            return
+
+        computed_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            for divergence in snapshot.divergences:
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO divergences
+                        (symbol, date, divergence_type, strength, price_peaks, indicator_peaks, description, computed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        divergence.symbol,
+                        divergence.date,
+                        divergence.divergence_type.value,
+                        divergence.strength,
+                        json.dumps(divergence.price_peaks),
+                        json.dumps(divergence.indicator_peaks),
+                        divergence.description,
+                        computed_at
+                    ))
+                except Exception as e:
+                    print(f"  Warning: Error saving divergence for {snapshot.symbol}: {str(e)}")
+
+            conn.commit()
+
+    def get_divergences(self, symbol: str, days: int = 30) -> List[Tuple]:
+        """
+        Get divergences for a symbol
+
+        Args:
+            symbol: Stock symbol
+            days: Number of days to look back
+
+        Returns:
+            List of tuples: (date, divergence_type, strength, description)
+        """
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, divergence_type, strength, description
+                FROM divergences
+                WHERE symbol = ? AND date >= ?
+                ORDER BY date DESC
+            ''', (symbol, cutoff_date))
+
+            return cursor.fetchall()
+
+    def get_bullish_divergences(self, date: str = None) -> List[Tuple[str, str, str]]:
+        """
+        Get all bullish divergences (reversal up signals)
+
+        Args:
+            date: Specific date to query. If None, uses latest.
+
+        Returns:
+            List of tuples: (symbol, date, divergence_type)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT symbol, date, divergence_type
+                    FROM divergences
+                    WHERE date = ? AND divergence_type LIKE 'Bullish%'
+                    ORDER BY symbol
+                ''', (date,))
+            else:
+                # Get latest divergences for each symbol
+                cursor.execute('''
+                    SELECT d.symbol, d.date, d.divergence_type
+                    FROM divergences d
+                    INNER JOIN (
+                        SELECT symbol, MAX(date) as max_date
+                        FROM divergences
+                        GROUP BY symbol
+                    ) latest ON d.symbol = latest.symbol AND d.date = latest.max_date
+                    WHERE d.divergence_type LIKE 'Bullish%'
+                    ORDER BY d.symbol
+                ''')
+
+            return cursor.fetchall()
+
+    def get_bearish_divergences(self, date: str = None) -> List[Tuple[str, str, str]]:
+        """
+        Get all bearish divergences (reversal down signals)
+
+        Args:
+            date: Specific date to query. If None, uses latest.
+
+        Returns:
+            List of tuples: (symbol, date, divergence_type)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if date:
+                cursor.execute('''
+                    SELECT symbol, date, divergence_type
+                    FROM divergences
+                    WHERE date = ? AND divergence_type LIKE 'Bearish%'
+                    ORDER BY symbol
+                ''', (date,))
+            else:
+                # Get latest divergences for each symbol
+                cursor.execute('''
+                    SELECT d.symbol, d.date, d.divergence_type
+                    FROM divergences d
+                    INNER JOIN (
+                        SELECT symbol, MAX(date) as max_date
+                        FROM divergences
+                        GROUP BY symbol
+                    ) latest ON d.symbol = latest.symbol AND d.date = latest.max_date
+                    WHERE d.divergence_type LIKE 'Bearish%'
+                    ORDER BY d.symbol
+                ''')
+
+            return cursor.fetchall()
+
+    # ===================================================================
+    # PATTERN STORAGE
+    # ===================================================================
+
+    def _save_patterns(self, snapshot: TechnicalSnapshot):
+        """
+        Save chart patterns from a snapshot
+
+        Args:
+            snapshot: TechnicalSnapshot with patterns
+        """
+        if not hasattr(snapshot, 'patterns') or not snapshot.patterns:
+            return
+
+        computed_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            for pattern in snapshot.patterns:
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO chart_patterns
+                        (symbol, pattern_type, status, start_date, end_date,
+                         key_points, neckline, target_price, description, computed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        pattern.symbol,
+                        pattern.pattern_type.value,
+                        pattern.status.value,
+                        pattern.start_date,
+                        pattern.end_date,
+                        json.dumps(pattern.key_points),
+                        pattern.neckline,
+                        pattern.target_price,
+                        pattern.description,
+                        computed_at
+                    ))
+                except Exception as e:
+                    print(f"  Warning: Error saving pattern for {snapshot.symbol}: {str(e)}")
+
+            conn.commit()
+
+    def get_patterns(self, symbol: str, days: int = 60) -> List[Tuple]:
+        """
+        Get chart patterns for a symbol
+
+        Args:
+            symbol: Stock symbol
+            days: Number of days to look back
+
+        Returns:
+            List of tuples: (pattern_type, status, start_date, end_date, neckline, target_price, description)
+        """
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT pattern_type, status, start_date, end_date, neckline, target_price, description
+                FROM chart_patterns
+                WHERE symbol = ? AND start_date >= ?
+                ORDER BY start_date DESC
+            ''', (symbol, cutoff_date))
+
+            return cursor.fetchall()
+
+    def get_confirmed_patterns(self, days: int = 7) -> List[Tuple[str, str, str, str, float]]:
+        """
+        Get recently confirmed patterns (breakouts)
+
+        Args:
+            days: Number of days to look back
+
+        Returns:
+            List of tuples: (symbol, pattern_type, start_date, end_date, target_price)
+        """
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT symbol, pattern_type, start_date, end_date, target_price
+                FROM chart_patterns
+                WHERE status = 'Confirmed' AND computed_at >= ?
+                ORDER BY computed_at DESC
+            ''', (cutoff_date,))
+
+            return cursor.fetchall()
+
+    def get_forming_patterns(self) -> List[Tuple[str, str, str, float, float]]:
+        """
+        Get patterns that are currently forming (not yet confirmed)
+
+        Returns:
+            List of tuples: (symbol, pattern_type, start_date, neckline, target_price)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # Get latest forming patterns for each symbol
+            cursor.execute('''
+                SELECT p.symbol, p.pattern_type, p.start_date, p.neckline, p.target_price
+                FROM chart_patterns p
+                INNER JOIN (
+                    SELECT symbol, pattern_type, MAX(computed_at) as max_computed
+                    FROM chart_patterns
+                    WHERE status = 'Forming'
+                    GROUP BY symbol, pattern_type
+                ) latest ON p.symbol = latest.symbol
+                         AND p.pattern_type = latest.pattern_type
+                         AND p.computed_at = latest.max_computed
+                WHERE p.status = 'Forming'
+                ORDER BY p.symbol, p.pattern_type
+            ''')
+
+            return cursor.fetchall()
 
 
 def main():

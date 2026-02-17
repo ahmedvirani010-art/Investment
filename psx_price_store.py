@@ -70,6 +70,38 @@ class PSXPriceStore:
                 ON daily_prices(symbol, date DESC)
             ''')
 
+            # Weekly prices table (computed from daily data)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS weekly_prices (
+                    symbol TEXT NOT NULL,
+                    week_start_date TEXT NOT NULL,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume INTEGER NOT NULL,
+                    turnover REAL,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (symbol, week_start_date)
+                )
+            ''')
+
+            # Create indexes for weekly data
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_weekly_symbol
+                ON weekly_prices(symbol)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_weekly_date
+                ON weekly_prices(week_start_date DESC)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_weekly_symbol_date
+                ON weekly_prices(symbol, week_start_date DESC)
+            ''')
+
             conn.commit()
 
     def get_latest_date(self, symbol: str) -> Optional[str]:
@@ -224,6 +256,164 @@ class PSXPriceStore:
                     print(f"  Warning: Error storing {symbol} on {date}: {str(e)}")
 
             conn.commit()
+
+    def _compute_weekly_data(self, symbol: str) -> pd.DataFrame:
+        """
+        Compute weekly aggregated prices from daily data
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            DataFrame with weekly OHLCV data, indexed by week start date (Monday)
+        """
+        # Get all daily data for this symbol
+        with sqlite3.connect(self.db_path) as conn:
+            query = '''
+                SELECT date, open, high, low, close, volume
+                FROM daily_prices
+                WHERE symbol = ?
+                ORDER BY date ASC
+            '''
+            df = pd.read_sql_query(
+                query,
+                conn,
+                params=(symbol,),
+                parse_dates=['date']
+            )
+
+        if df.empty:
+            return pd.DataFrame()
+
+        # Set date as index
+        df.set_index('date', inplace=True)
+
+        # Resample to weekly (W-MON = week ending on Monday, labeled with Monday's date)
+        weekly_df = df.resample('W-MON').agg({
+            'open': 'first',   # First opening price of the week
+            'high': 'max',     # Highest price of the week
+            'low': 'min',      # Lowest price of the week
+            'close': 'last',   # Last closing price of the week
+            'volume': 'sum'    # Total volume for the week
+        })
+
+        # Remove rows with NaN (weeks with no trading data)
+        weekly_df = weekly_df.dropna()
+
+        # Calculate weekly turnover
+        weekly_df['turnover'] = weekly_df['volume'] * weekly_df['close']
+
+        return weekly_df
+
+    def _store_weekly_dataframe(self, symbol: str, df: pd.DataFrame):
+        """
+        Store a DataFrame of weekly prices into the database
+
+        Args:
+            symbol: Stock symbol
+            df: DataFrame with weekly OHLCV data indexed by week start date
+        """
+        if df.empty:
+            return
+
+        computed_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            for date, row in df.iterrows():
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO weekly_prices
+                        (symbol, week_start_date, open, high, low, close, volume, turnover, computed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        symbol,
+                        date.strftime('%Y-%m-%d'),
+                        float(row['open']),
+                        float(row['high']),
+                        float(row['low']),
+                        float(row['close']),
+                        int(row['volume']),
+                        float(row['turnover']),
+                        computed_at
+                    ))
+                except Exception as e:
+                    print(f"  Warning: Error storing weekly data for {symbol} on {date}: {str(e)}")
+
+            conn.commit()
+
+    def get_weekly_prices(self, symbol: str, weeks: int = 52) -> pd.DataFrame:
+        """
+        Get stored weekly prices for a symbol
+
+        Args:
+            symbol: Stock symbol
+            weeks: Number of weeks to retrieve
+
+        Returns:
+            DataFrame with weekly OHLCV data, indexed by week start date
+        """
+        end_date = datetime.now()
+        start_date = end_date - timedelta(weeks=weeks)
+
+        with sqlite3.connect(self.db_path) as conn:
+            query = '''
+                SELECT week_start_date, open, high, low, close, volume
+                FROM weekly_prices
+                WHERE symbol = ? AND week_start_date >= ?
+                ORDER BY week_start_date ASC
+            '''
+
+            df = pd.read_sql_query(
+                query,
+                conn,
+                params=(symbol, start_date.strftime('%Y-%m-%d')),
+                parse_dates=['week_start_date']
+            )
+
+            if df.empty:
+                return pd.DataFrame()
+
+            # Set week_start_date as index
+            df.set_index('week_start_date', inplace=True)
+
+            # Capitalize column names to match daily prices format
+            df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+
+            return df
+
+    def update_weekly_from_daily(self, symbols: List[str]):
+        """
+        Compute and store weekly aggregations for multiple symbols
+
+        This should be called after bulk_update() to compute weekly data
+        from the daily data that was just fetched.
+
+        Args:
+            symbols: List of stock symbols
+        """
+        print(f"\n{'='*80}")
+        print(f"COMPUTING WEEKLY AGGREGATIONS")
+        print(f"{'='*80}")
+        print(f"Symbols: {len(symbols)}")
+        print(f"{'='*80}\n")
+
+        for i, symbol in enumerate(symbols, 1):
+            print(f"[{i}/{len(symbols)}] Computing weekly data for {symbol}...")
+            try:
+                weekly_df = self._compute_weekly_data(symbol)
+                if not weekly_df.empty:
+                    self._store_weekly_dataframe(symbol, weekly_df)
+                    print(f"  ✅ Stored {len(weekly_df)} weeks of data")
+                else:
+                    print(f"  ⚠️  No daily data available to aggregate")
+            except Exception as e:
+                print(f"  ❌ Error computing weekly data: {str(e)}")
+
+        print(f"\n{'='*80}")
+        print("✅ Weekly aggregation complete")
+        print(f"{'='*80}\n")
 
     def bulk_update(self, symbols: List[str], days: int = 60):
         """
