@@ -544,7 +544,7 @@ def create_portfolio_manager_with_defaults(
     if HAS_FUNDAMENTAL_AGENT:
         try:
             fundamental_agent = PSXFundamentalAgent()
-        except:
+        except Exception:
             pass
 
     return PortfolioRiskManager(risk_agent, fundamental_agent)

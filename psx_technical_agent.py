@@ -3,12 +3,21 @@ PSX Technical Analysis Agent
 Computes standard technical indicators on stored price data
 """
 
+import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+
+logger = logging.getLogger(__name__)
+
+# RSI overbought/oversold thresholds (Wilder standard)
+RSI_OVERBOUGHT = 70
+RSI_OVERSOLD = 30
+RSI_EXTREME_OVERBOUGHT = 80
+RSI_EXTREME_OVERSOLD = 20
 
 # Optional import for divergence detection
 try:
@@ -223,7 +232,7 @@ class PSXTechnicalAgent:
                         description=div.divergence_type.value
                     ))
             except Exception as e:
-                print(f"  Warning: Error detecting divergences for {symbol}: {str(e)}")
+                logger.warning(f"Error detecting divergences for {symbol}: {str(e)}")
 
         # Pattern recognition (if recognizer is available)
         patterns = []
@@ -270,7 +279,7 @@ class PSXTechnicalAgent:
                             description=f"{pattern.pattern_type.value} ({pattern.status.value})"
                         ))
             except Exception as e:
-                print(f"  Warning: Error detecting patterns for {symbol}: {str(e)}")
+                logger.warning(f"Error detecting patterns for {symbol}: {str(e)}")
 
         # Aggregate signals into overall bias
         overall_bias, confidence = self._aggregate_signals(signals)
@@ -303,7 +312,7 @@ class PSXTechnicalAgent:
                 snapshot = self.analyze_symbol(symbol)
                 results[symbol] = snapshot
             except Exception as e:
-                print(f"Error analyzing {symbol}: {str(e)}")
+                logger.error(f"Error analyzing {symbol}: {str(e)}")
 
         return results
 
@@ -491,26 +500,26 @@ class PSXTechnicalAgent:
 
         signal = None
 
-        if rsi >= 70:
+        if rsi >= RSI_OVERBOUGHT:
             signal = TechnicalSignal(
                 symbol=symbol,
                 date=date,
                 indicator="RSI",
                 signal_type=SignalType.OVERBOUGHT,
-                strength=SignalStrength.STRONG if rsi >= 80 else SignalStrength.MODERATE,
+                strength=SignalStrength.STRONG if rsi >= RSI_EXTREME_OVERBOUGHT else SignalStrength.MODERATE,
                 value=rsi,
-                threshold=70,
+                threshold=RSI_OVERBOUGHT,
                 description=f"RSI at {rsi:.1f} (overbought)"
             )
-        elif rsi <= 30:
+        elif rsi <= RSI_OVERSOLD:
             signal = TechnicalSignal(
                 symbol=symbol,
                 date=date,
                 indicator="RSI",
                 signal_type=SignalType.OVERSOLD,
-                strength=SignalStrength.STRONG if rsi <= 20 else SignalStrength.MODERATE,
+                strength=SignalStrength.STRONG if rsi <= RSI_EXTREME_OVERSOLD else SignalStrength.MODERATE,
                 value=rsi,
-                threshold=30,
+                threshold=RSI_OVERSOLD,
                 description=f"RSI at {rsi:.1f} (oversold)"
             )
 

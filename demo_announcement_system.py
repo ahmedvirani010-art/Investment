@@ -7,7 +7,7 @@ Uses sample data to show the full workflow
 """
 
 from datetime import datetime, timedelta
-from psx_announcement_scraper import RawAnnouncement
+from psx_announcement_scraper_v2 import RawAnnouncement
 from psx_announcement_classifier import AnnouncementClassifier
 from psx_announcement_storage import AnnouncementStorage, Announcement
 from psx_anomaly_agent import Anomaly, AnomalyType, Severity

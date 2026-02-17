@@ -63,3 +63,6 @@ build/
 news_data/
 *.db
 *.db-journal
+
+# Generated timestamped analysis outputs
+psx_*_analysis_*.csv

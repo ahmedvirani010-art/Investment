@@ -33,14 +33,14 @@ class SimpleFeedEntry:
             parsed = parsedate(date_str)
             if parsed:
                 return parsed
-        except:
+        except (ValueError, TypeError):
             pass
 
         try:
             # Try ISO format
             dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
             return dt.timetuple()[:6]
-        except:
+        except (ValueError, TypeError):
             pass
 
         # Return current time if parsing fails
@@ -82,7 +82,7 @@ def parse(url_or_content: str) -> SimpleFeed:
     # Parse XML
     try:
         root = ET.fromstring(content)
-    except:
+    except ET.ParseError:
         return SimpleFeed([])
 
     entries = []

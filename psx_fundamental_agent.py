@@ -10,9 +10,18 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional, Any
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
+import logging
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
+
+# Composite fundamental score weights (must sum to 1.0)
+WEIGHT_VALUATION = 0.30
+WEIGHT_HEALTH = 0.40
+WEIGHT_GROWTH = 0.20
+WEIGHT_MOMENTUM = 0.10
 
 
 class Recommendation(Enum):
@@ -405,7 +414,7 @@ class PSXFundamentalAgent:
                 score = self.quick_analysis(symbol)
                 results[symbol] = score
             except Exception as e:
-                print(f"Error analyzing {symbol}: {str(e)}")
+                logger.warning(f"Error analyzing {symbol}: {str(e)}")
 
         return results
 
@@ -429,18 +438,11 @@ class PSXFundamentalAgent:
         - Growth: 20%
         - Momentum: 10%
         """
-        weights = {
-            "valuation": 0.30,
-            "health": 0.40,
-            "growth": 0.20,
-            "momentum": 0.10
-        }
-
         composite = (
-            valuation_score * weights["valuation"] +
-            health_score * weights["health"] +
-            growth_score * weights["growth"] +
-            momentum_score * weights["momentum"]
+            valuation_score * WEIGHT_VALUATION +
+            health_score * WEIGHT_HEALTH +
+            growth_score * WEIGHT_GROWTH +
+            momentum_score * WEIGHT_MOMENTUM
         )
 
         return composite
@@ -798,7 +800,7 @@ class PSXFundamentalAgent:
                         metrics['total_equity'] = recent['Total Stockholder Equity']
                     elif 'Stockholders Equity' in balance_sheet.index:
                         metrics['total_equity'] = recent['Stockholders Equity']
-            except:
+            except (KeyError, TypeError, AttributeError):
                 pass
 
             # Add mock data for fields not available via yfinance
@@ -808,7 +810,7 @@ class PSXFundamentalAgent:
             metrics['_cached_at'] = datetime.now()
 
         except Exception as e:
-            print(f"Warning: Error fetching fundamentals for {symbol}: {str(e)}")
+            logger.warning(f"Error fetching fundamentals for {symbol}: {str(e)}")
             # Return default metrics
             metrics = self._generate_mock_enhanced_metrics(symbol)
             metrics['current_price'] = 100
@@ -1067,10 +1069,10 @@ class PSXFundamentalAgent:
 
         # Component Scores
         print(f"\n📈 COMPONENT SCORES")
-        print(f"   Valuation:        {score.valuation_score:.1f}/100 (30% weight)")
-        print(f"   Financial Health: {score.health_score:.1f}/100 (40% weight)")
-        print(f"   Growth:           {score.growth_score:.1f}/100 (20% weight)")
-        print(f"   Momentum:         {score.momentum_score:.1f}/100 (10% weight)")
+        print(f"   Valuation:        {score.valuation_score:.1f}/100 ({WEIGHT_VALUATION:.0%} weight)")
+        print(f"   Financial Health: {score.health_score:.1f}/100 ({WEIGHT_HEALTH:.0%} weight)")
+        print(f"   Growth:           {score.growth_score:.1f}/100 ({WEIGHT_GROWTH:.0%} weight)")
+        print(f"   Momentum:         {score.momentum_score:.1f}/100 ({WEIGHT_MOMENTUM:.0%} weight)")
 
         # Valuation
         print(f"\n💰 VALUATION")

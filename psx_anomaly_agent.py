@@ -5,6 +5,7 @@ Monitors Pakistan Stock Exchange (PSX) for unusual trading patterns and price mo
 Uses statistical analysis to detect anomalies in volume, price, volatility, and liquidity.
 """
 
+import logging
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -12,6 +13,12 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger(__name__)
+
+# Default thresholds for anomaly detection
+DEFAULT_Z_THRESHOLD = 2.5
+DEFAULT_LOOKBACK_DAYS = 60
 
 
 class Severity(Enum):
@@ -55,7 +62,7 @@ class PSXAnomalyAgent:
     - Liquidity changes (turnover anomalies)
     """
 
-    def __init__(self, lookback_days: int = 60, z_threshold: float = 2.5, price_store=None):
+    def __init__(self, lookback_days: int = DEFAULT_LOOKBACK_DAYS, z_threshold: float = DEFAULT_Z_THRESHOLD, price_store=None):
         """
         Initialize the anomaly detection agent
 
@@ -105,7 +112,7 @@ class PSXAnomalyAgent:
                 if not df.empty:
                     return df
             except Exception as e:
-                print(f"Warning: Price store failed for {symbol}, falling back to yfinance: {str(e)}")
+                logger.warning(f"Price store failed for {symbol}, falling back to yfinance: {str(e)}")
 
         # Fallback to direct yfinance fetch
         ticker_symbol = f"{symbol}.KA"
@@ -118,12 +125,12 @@ class PSXAnomalyAgent:
             df = ticker.history(start=start_date, end=end_date)
 
             if df.empty:
-                print(f"Warning: No data found for {symbol}")
+                logger.warning(f"No data found for {symbol}")
                 return pd.DataFrame()
 
             return df
         except Exception as e:
-            print(f"Error fetching data for {symbol}: {str(e)}")
+            logger.error(f"Error fetching data for {symbol}: {str(e)}")
             return pd.DataFrame()
 
     def detect_volume_spikes(self, symbol: str, df: pd.DataFrame) -> List[Anomaly]:
@@ -404,10 +411,10 @@ def main():
 
     # Initialize agent
     print("Initializing PSX Anomaly Detection Agent...")
-    print(f"Lookback Period: 60 days")
-    print(f"Z-Score Threshold: 2.5σ")
+    print(f"Lookback Period: {DEFAULT_LOOKBACK_DAYS} days")
+    print(f"Z-Score Threshold: {DEFAULT_Z_THRESHOLD}σ")
 
-    agent = PSXAnomalyAgent(lookback_days=60, z_threshold=2.5)
+    agent = PSXAnomalyAgent(lookback_days=DEFAULT_LOOKBACK_DAYS, z_threshold=DEFAULT_Z_THRESHOLD)
 
     # Generate report
     report = agent.generate_report(psx_stocks)

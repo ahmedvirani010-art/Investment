@@ -99,7 +99,7 @@ class PSXSentimentAnalyzer:
                 try:
                     change = float(match.group(1))
                     return (change, direction)
-                except:
+                except (ValueError, AttributeError):
                     pass
 
         return (None, 'neutral')

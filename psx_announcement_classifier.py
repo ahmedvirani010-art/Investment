@@ -8,7 +8,7 @@ Extracts financial data from announcement text and PDF attachments
 import re
 from typing import Optional, Tuple, Dict
 import logging
-from psx_announcement_scraper import RawAnnouncement
+from psx_announcement_scraper_v2 import RawAnnouncement
 from psx_announcement_storage import Announcement
 from datetime import datetime
 
