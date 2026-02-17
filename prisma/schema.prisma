@@ -231,3 +231,11 @@ model AccountSnapshot {
 
   @@index([date])
 }
+
+model LlmSettings {
+  id        String   @id @default("singleton")
+  apiKey    String
+  model     String   @default("openai/gpt-4o-mini")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
