@@ -630,8 +630,8 @@ class PSXFundamentalAgent:
         flags = []
 
         # Debt Spike
-        debt_to_equity = metrics.get('debt_to_equity', 0)
-        debt_growth = metrics.get('debt_growth_yoy', 0)
+        debt_to_equity = metrics.get('debt_to_equity') or 0
+        debt_growth = metrics.get('debt_growth_yoy') or 0
         if debt_to_equity > 1.5 and debt_growth > 50:
             flags.append(RedFlag(
                 flag="debt_spike",
@@ -641,8 +641,8 @@ class PSXFundamentalAgent:
             ))
 
         # Declining Margins
-        margin_change = metrics.get('margin_change_pct', 0)
-        quarters_declining = metrics.get('quarters_margin_declining', 0)
+        margin_change = metrics.get('margin_change_pct') or 0
+        quarters_declining = metrics.get('quarters_margin_declining') or 0
         if margin_change < -5 and quarters_declining >= 2:
             flags.append(RedFlag(
                 flag="declining_margins",
@@ -652,8 +652,8 @@ class PSXFundamentalAgent:
             ))
 
         # Negative Cash Flow
-        ocf = metrics.get('operating_cash_flow', 0)
-        quarters_negative = metrics.get('quarters_negative_ocf', 0)
+        ocf = metrics.get('operating_cash_flow') or 0
+        quarters_negative = metrics.get('quarters_negative_ocf') or 0
         if ocf < 0 and quarters_negative >= 2:
             flags.append(RedFlag(
                 flag="negative_cash_flow",
@@ -663,7 +663,7 @@ class PSXFundamentalAgent:
             ))
 
         # Revenue Decline
-        revenue_growth = metrics.get('revenue_growth_yoy', 0)
+        revenue_growth = metrics.get('revenue_growth_yoy') or 0
         if revenue_growth < -10:
             flags.append(RedFlag(
                 flag="revenue_decline",
@@ -673,7 +673,7 @@ class PSXFundamentalAgent:
             ))
 
         # Low Liquidity
-        current_ratio = metrics.get('current_ratio', 2.0)
+        current_ratio = metrics.get('current_ratio') or 2.0
         if current_ratio < 1.0:
             flags.append(RedFlag(
                 flag="low_liquidity",
@@ -683,7 +683,7 @@ class PSXFundamentalAgent:
             ))
 
         # Negative Equity
-        equity = metrics.get('total_equity', 1)
+        equity = metrics.get('total_equity') or 1
         if equity < 0:
             flags.append(RedFlag(
                 flag="negative_equity",
@@ -933,11 +933,11 @@ class PSXFundamentalAgent:
         catalysts = []
 
         # Earnings surprise
-        if metrics.get('earnings_surprise_pct', 0) > 10:
+        if (metrics.get('earnings_surprise_pct') or 0) > 10:
             catalysts.append("Recent earnings beat")
 
         # Strong growth
-        if metrics.get('revenue_growth_yoy', 0) > 20:
+        if (metrics.get('revenue_growth_yoy') or 0) > 20:
             catalysts.append("Strong revenue growth")
 
         # Improving margins
