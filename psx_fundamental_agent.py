@@ -14,6 +14,23 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import yfinance as yf
 
+from agent_prompts import (
+    COMPANY_BRIEFING_PROMPT,
+    INDUSTRY_BRIEFING_PROMPT,
+    FINANCIAL_BRIEFING_PROMPT,
+    NEWS_BRIEFING_PROMPT,
+    BRIEFING_ANALYSIS_INSTRUCTION,
+    EDITOR_SYSTEM_MESSAGE,
+    COMPILE_CONTENT_PROMPT,
+    CONTENT_SWEEP_SYSTEM_MESSAGE,
+    CONTENT_SWEEP_PROMPT,
+    COMPANY_ANALYZER_QUERY_PROMPT,
+    FINANCIAL_ANALYZER_QUERY_PROMPT,
+    INDUSTRY_ANALYZER_QUERY_PROMPT,
+    NEWS_SCANNER_QUERY_PROMPT,
+    QUERY_FORMAT_GUIDELINES,
+)
+
 
 class Recommendation(Enum):
     """Investment recommendation"""
@@ -127,6 +144,7 @@ class FundamentalScore:
 
     processing_time_ms: Optional[int] = None
     analysis_mode: str = "quick"  # "quick" or "deep"
+    research_report: Optional[str] = None  # LLM-generated narrative research report
 
 
 class PSXFundamentalAgent:
@@ -208,16 +226,20 @@ class PSXFundamentalAgent:
         }
     }
 
-    def __init__(self, cache_ttl_hours: int = 24, price_store=None):
+    def __init__(self, cache_ttl_hours: int = 24, price_store=None, llm_client=None):
         """
         Initialize the fundamental analysis agent
 
         Args:
             cache_ttl_hours: Hours to cache fundamental data before refresh
             price_store: Optional PSXPriceStore instance for price data
+            llm_client: Optional Anthropic client for LLM-based research reports.
+                        When provided, deep_analysis() also generates a narrative
+                        research report via generate_company_research().
         """
         self.cache_ttl_hours = cache_ttl_hours
         self.price_store = price_store
+        self.llm_client = llm_client
         self.metrics_cache: Dict[str, Tuple[Dict, datetime]] = {}
 
     def quick_analysis(self, symbol: str) -> FundamentalScore:
@@ -349,6 +371,14 @@ class PSXFundamentalAgent:
 
         processing_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
+        # Generate LLM-based narrative research report if client is configured
+        research_report = None
+        if self.llm_client is not None:
+            try:
+                research_report = self.generate_company_research(symbol)
+            except Exception as e:
+                print(f"Warning: LLM research report generation failed for {symbol}: {e}")
+
         return FundamentalScore(
             symbol=symbol,
             fundamental_score=round(fundamental_score, 1),
@@ -369,7 +399,8 @@ class PSXFundamentalAgent:
             growth_score=growth_score,
             momentum_score=momentum_score,
             processing_time_ms=processing_time_ms,
-            analysis_mode="deep"
+            analysis_mode="deep",
+            research_report=research_report,
         )
 
     def analyze_symbol(self, symbol: str, mode: str = "quick") -> FundamentalScore:
@@ -1046,6 +1077,159 @@ class PSXFundamentalAgent:
             return Recommendation.HOLD
         else:
             return Recommendation.SELL
+
+    # ===================================================================
+    # LLM-BASED RESEARCH
+    # ===================================================================
+
+    def _llm_call(self, system: str, user: str) -> str:
+        """
+        Make a single LLM call via the configured Anthropic client.
+
+        Args:
+            system: System message for the LLM
+            user: User message / prompt
+
+        Returns:
+            Text response from the LLM
+        """
+        response = self.llm_client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=4096,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return response.content[0].text
+
+    def _resolve_company_metadata(self, symbol: str) -> Dict[str, str]:
+        """
+        Resolve human-readable company metadata from yfinance for prompt formatting.
+
+        Args:
+            symbol: PSX stock symbol (e.g. "ENGRO")
+
+        Returns:
+            Dict with keys: company, industry, hq_location
+        """
+        try:
+            ticker = yf.Ticker(f"{symbol}.KA")
+            info = ticker.info
+            company = info.get("longName") or info.get("shortName") or symbol
+            industry = info.get("industry") or info.get("sector") or "Financial Services"
+            country = info.get("country") or "Pakistan"
+            city = info.get("city") or ""
+            hq_location = f"{city}, {country}".strip(", ") if city else country
+        except Exception:
+            company = symbol
+            industry = "Financial Services"
+            hq_location = "Pakistan"
+        return {"company": company, "industry": industry, "hq_location": hq_location}
+
+    def generate_research_queries(self, company: str, industry: str) -> Dict[str, List[str]]:
+        """
+        Generate targeted LLM search queries for all research dimensions.
+
+        Args:
+            company: Full company name
+            industry: Company industry/sector
+
+        Returns:
+            Dict mapping dimension names to lists of search queries
+        """
+        guidelines = QUERY_FORMAT_GUIDELINES.format(company=company)
+        dimensions = {
+            "company": COMPANY_ANALYZER_QUERY_PROMPT,
+            "financial": FINANCIAL_ANALYZER_QUERY_PROMPT,
+            "industry": INDUSTRY_ANALYZER_QUERY_PROMPT,
+            "news": NEWS_SCANNER_QUERY_PROMPT,
+        }
+        queries: Dict[str, List[str]] = {}
+        for key, prompt_template in dimensions.items():
+            prompt = prompt_template.format(company=company, industry=industry) + guidelines
+            raw = self._llm_call(system="You are a financial research assistant.", user=prompt)
+            queries[key] = [line.strip() for line in raw.strip().splitlines() if line.strip()]
+        return queries
+
+    def generate_briefings(self, company: str, industry: str, hq_location: str) -> Dict[str, str]:
+        """
+        Generate individual research briefings for company, industry, financial, and news.
+
+        Args:
+            company: Full company name
+            industry: Company industry/sector
+            hq_location: Headquarters location
+
+        Returns:
+            Dict mapping briefing type to generated briefing text
+        """
+        ctx = {"company": company, "industry": industry, "hq_location": hq_location}
+        briefings = {
+            "company": COMPANY_BRIEFING_PROMPT.format(**ctx),
+            "industry": INDUSTRY_BRIEFING_PROMPT.format(**ctx),
+            "financial": FINANCIAL_BRIEFING_PROMPT.format(**ctx),
+            "news": NEWS_BRIEFING_PROMPT.format(**ctx),
+        }
+        system = BRIEFING_ANALYSIS_INSTRUCTION
+        return {key: self._llm_call(system=system, user=prompt) for key, prompt in briefings.items()}
+
+    def compile_research_report(
+        self, company: str, industry: str, hq_location: str, briefings: Dict[str, str]
+    ) -> str:
+        """
+        Compile individual briefings into a polished research report.
+
+        Args:
+            company: Full company name
+            industry: Company industry/sector
+            hq_location: Headquarters location
+            briefings: Dict returned by generate_briefings()
+
+        Returns:
+            Final polished markdown research report
+        """
+        combined = "\n\n".join(
+            f"### {key.capitalize()} Briefing\n{text}" for key, text in briefings.items()
+        )
+        compile_prompt = COMPILE_CONTENT_PROMPT.format(
+            company=company,
+            industry=industry,
+            hq_location=hq_location,
+            combined_content=combined,
+        )
+        compiled = self._llm_call(system=EDITOR_SYSTEM_MESSAGE, user=compile_prompt)
+
+        sweep_prompt = CONTENT_SWEEP_PROMPT.format(
+            company=company,
+            industry=industry,
+            hq_location=hq_location,
+            content=compiled,
+        )
+        return self._llm_call(system=CONTENT_SWEEP_SYSTEM_MESSAGE, user=sweep_prompt)
+
+    def generate_company_research(self, symbol: str) -> str:
+        """
+        Orchestrate the full LLM-based company research pipeline for a PSX stock.
+
+        Steps:
+        1. Resolve company metadata (name, industry, location) from yfinance
+        2. Generate research queries
+        3. Generate four research briefings (company, industry, financial, news)
+        4. Compile and clean into a final polished markdown report
+
+        Args:
+            symbol: PSX stock symbol (e.g. "ENGRO")
+
+        Returns:
+            Polished markdown research report as a string
+        """
+        meta = self._resolve_company_metadata(symbol)
+        company = meta["company"]
+        industry = meta["industry"]
+        hq_location = meta["hq_location"]
+
+        self.generate_research_queries(company, industry)
+        briefings = self.generate_briefings(company, industry, hq_location)
+        return self.compile_research_report(company, industry, hq_location, briefings)
 
     # ===================================================================
     # REPORTING
