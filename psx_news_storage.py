@@ -243,17 +243,22 @@ class NewsStorage:
             return [self._row_to_article(row) for row in cursor.fetchall()]
 
     def get_articles_by_symbol(self, symbol: str, days: int = 7) -> List[NewsArticle]:
-        """Get articles mentioning a specific symbol"""
+        """Get articles mentioning a symbol or macro news affecting this symbol."""
         cutoff = datetime.now() - timedelta(days=days)
+        symbol_in_list = f'%"{symbol}"%'
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT * FROM news_articles
-                WHERE (mentioned_symbols LIKE ? OR primary_symbol = ?)
+                WHERE (
+                    mentioned_symbols LIKE ? OR primary_symbol = ?
+                    OR indirectly_affected_symbols LIKE ?
+                    OR indirectly_affected_symbols LIKE '%"ALL"%'
+                )
                 AND published_date >= ?
                 ORDER BY published_date DESC
-            ''', (f'%"{symbol}"%', symbol, cutoff.isoformat()))
+            ''', (symbol_in_list, symbol, symbol_in_list, cutoff.isoformat()))
 
             return [self._row_to_article(row) for row in cursor.fetchall()]
 

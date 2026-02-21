@@ -6,9 +6,12 @@ Computes standard technical indicators on stored price data
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+import json
+import re
+import sys
 
 # Optional import for divergence detection
 try:
@@ -56,6 +59,11 @@ class TechnicalSignal:
     description: str = ""   # Human-readable description
 
 
+# Indicator classification for trend vs mean-reversion scoring
+TREND_INDICATORS = {"MACD", "SMA_Crossover", "SMA_200_Trend", "Fibonacci", "Elliott_Wave"}
+MEAN_REVERSION_INDICATORS = {"RSI", "Bollinger_Bands", "Stochastic"}
+
+
 @dataclass
 class TechnicalSnapshot:
     """Complete technical picture for one stock on one date"""
@@ -67,6 +75,18 @@ class TechnicalSnapshot:
     indicator_values: Dict[str, float] = field(default_factory=dict)
     divergences: List = field(default_factory=list)  # List[Divergence] if available
     patterns: List = field(default_factory=list)  # List[ChartPattern] if available
+    # Fibonacci retracement/extension levels (optional structured output)
+    fibonacci_levels: Optional[Dict] = None
+    # Elliott Wave phase and structure (optional; simplified rule-based)
+    elliott_wave: Optional[Dict] = None
+    # Scores 1-100 (50 = neutral): trend-following strength, mean-reversion strength, overall
+    trend_score: int = 50
+    mean_reversion_score: int = 50
+    technical_score: int = 50
+    # AI-generated technical summary and buy/sell call (when LLM or rule-based generator runs)
+    ai_summary: Optional[str] = None
+    ai_call: Optional[str] = None       # "Buy", "Hold", or "Sell"
+    ai_call_rationale: Optional[str] = None
 
 
 @dataclass
@@ -92,7 +112,7 @@ class PSXTechnicalAgent:
     - Volume: OBV
     """
 
-    def __init__(self, price_store, divergence_detector=None, pattern_recognizer=None):
+    def __init__(self, price_store, divergence_detector=None, pattern_recognizer=None, llm_client=None):
         """
         Initialize technical agent
 
@@ -100,10 +120,14 @@ class PSXTechnicalAgent:
             price_store: PSXPriceStore instance for reading price data
             divergence_detector: Optional PSXDivergenceDetector instance
             pattern_recognizer: Optional PSXPatternRecognizer instance
+            llm_client: Optional callable(messages, system_prompt=None, **kwargs) -> str for AI summary/call.
+                        Example: llm_client from llm_client.chat_completion (with messages=[], system_prompt=).
+                        If None, a rule-based summary and call are still generated.
         """
         self.price_store = price_store
         self.divergence_detector = divergence_detector
         self.pattern_recognizer = pattern_recognizer
+        self.llm_client = llm_client
 
     def analyze_symbol(self, symbol: str) -> TechnicalSnapshot:
         """
@@ -126,7 +150,13 @@ class PSXTechnicalAgent:
                 signals=[],
                 overall_bias=SignalType.NEUTRAL,
                 confidence=0.0,
-                indicator_values={}
+                indicator_values={},
+                trend_score=50,
+                mean_reversion_score=50,
+                technical_score=50,
+                ai_summary="Insufficient price data for technical analysis (need at least 50 days).",
+                ai_call="Hold",
+                ai_call_rationale="Not enough price history to generate a technical view. Wait for more data or check the symbol.",
             )
 
         # Compute all indicators
@@ -173,6 +203,18 @@ class PSXTechnicalAgent:
         obv_value = self.compute_obv(df)
         if not pd.isna(obv_value):
             indicator_values['OBV'] = obv_value
+
+        # Fibonacci retracement and extension
+        fibonacci_levels = None
+        fib_signals, fib_values, fibonacci_levels = self._analyze_fibonacci(symbol, df, latest_date)
+        signals.extend(fib_signals)
+        indicator_values.update(fib_values)
+
+        # Elliott Wave (simplified rule-based)
+        elliott_wave = None
+        ew_signals, ew_values, elliott_wave = self._analyze_elliott_wave(symbol, df, latest_date)
+        signals.extend(ew_signals)
+        indicator_values.update(ew_values)
 
         # Divergence detection (if detector is available)
         divergences = []
@@ -223,7 +265,7 @@ class PSXTechnicalAgent:
                         description=div.divergence_type.value
                     ))
             except Exception as e:
-                print(f"  Warning: Error detecting divergences for {symbol}: {str(e)}")
+                print(f"  Warning: Error detecting divergences for {symbol}: {str(e)}", file=sys.stderr)
 
         # Pattern recognition (if recognizer is available)
         patterns = []
@@ -270,12 +312,16 @@ class PSXTechnicalAgent:
                             description=f"{pattern.pattern_type.value} ({pattern.status.value})"
                         ))
             except Exception as e:
-                print(f"  Warning: Error detecting patterns for {symbol}: {str(e)}")
+                print(f"  Warning: Error detecting patterns for {symbol}: {str(e)}", file=sys.stderr)
 
         # Aggregate signals into overall bias
         overall_bias, confidence = self._aggregate_signals(signals)
+        current_price = float(df["Close"].iloc[-1]) if len(df) > 0 else None
+        trend_score, mean_reversion_score, technical_score = self._compute_scores(
+            signals, indicator_values=indicator_values, current_price=current_price
+        )
 
-        return TechnicalSnapshot(
+        snapshot = TechnicalSnapshot(
             symbol=symbol,
             date=latest_date,
             signals=signals,
@@ -283,8 +329,18 @@ class PSXTechnicalAgent:
             confidence=confidence,
             indicator_values=indicator_values,
             divergences=divergences,
-            patterns=patterns
+            patterns=patterns,
+            fibonacci_levels=fibonacci_levels,
+            elliott_wave=elliott_wave,
+            trend_score=trend_score,
+            mean_reversion_score=mean_reversion_score,
+            technical_score=technical_score,
         )
+        summary, call, rationale = self._generate_summary_and_call(snapshot)
+        snapshot.ai_summary = summary
+        snapshot.ai_call = call
+        snapshot.ai_call_rationale = rationale
+        return snapshot
 
     def analyze_batch(self, symbols: List[str]) -> Dict[str, TechnicalSnapshot]:
         """
@@ -303,7 +359,7 @@ class PSXTechnicalAgent:
                 snapshot = self.analyze_symbol(symbol)
                 results[symbol] = snapshot
             except Exception as e:
-                print(f"Error analyzing {symbol}: {str(e)}")
+                print(f"Error analyzing {symbol}: {str(e)}", file=sys.stderr)
 
         return results
 
@@ -319,6 +375,49 @@ class PSXTechnicalAgent:
         """
         snapshot = self.analyze_symbol(symbol)
         return [s for s in snapshot.signals if s.signal_type != SignalType.NEUTRAL]
+
+    # ===================================================================
+    # SWING POINTS (for Fibonacci & Elliott Wave)
+    # ===================================================================
+
+    def _get_swing_points(
+        self, df: pd.DataFrame, window: int = 5, lookback_bars: int = 120
+    ) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
+        """
+        Detect swing highs and swing lows (local extrema) over a rolling window.
+
+        A swing high is a bar whose High is the max of High over `window` bars centered.
+        A swing low is a bar whose Low is the min of Low over the same window.
+        Returns lists of (date_str, price) in chronological order for the last lookback_bars.
+
+        Args:
+            df: DataFrame with DatetimeIndex and High, Low columns
+            window: Number of bars on each side for local max/min (default 5)
+            lookback_bars: Use only the last N bars (default 120)
+
+        Returns:
+            (swing_highs, swing_lows), each a list of (date_str, price)
+        """
+        if len(df) < 2 * window + 1:
+            return [], []
+
+        use = df.tail(lookback_bars).copy()
+        if len(use) < 2 * window + 1:
+            return [], []
+
+        high_roll = use['High'].rolling(window=2 * window + 1, center=True).max()
+        low_roll = use['Low'].rolling(window=2 * window + 1, center=True).min()
+
+        swing_highs = []
+        swing_lows = []
+        for i in range(window, len(use) - window):
+            idx = use.index[i]
+            if use['High'].iloc[i] == high_roll.iloc[i] and pd.notna(high_roll.iloc[i]):
+                swing_highs.append((idx.strftime('%Y-%m-%d'), float(use['High'].iloc[i])))
+            if use['Low'].iloc[i] == low_roll.iloc[i] and pd.notna(low_roll.iloc[i]):
+                swing_lows.append((idx.strftime('%Y-%m-%d'), float(use['Low'].iloc[i])))
+
+        return swing_highs, swing_lows
 
     # ===================================================================
     # INDICATOR COMPUTATION METHODS
@@ -731,6 +830,226 @@ class PSXTechnicalAgent:
 
         return None, values
 
+    def _analyze_fibonacci(
+        self, symbol: str, df: pd.DataFrame, date: str
+    ) -> Tuple[List[TechnicalSignal], Dict[str, float], Optional[Dict]]:
+        """
+        Compute Fibonacci retracement levels from last significant swing and optionally
+        emit signals when price is near key levels (38.2, 50, 61.8).
+        """
+        signals: List[TechnicalSignal] = []
+        values: Dict[str, float] = {}
+        fib_levels: Optional[Dict] = None
+
+        swing_highs, swing_lows = self._get_swing_points(df, window=5, lookback_bars=100)
+        if not swing_highs or not swing_lows:
+            return signals, values, fib_levels
+
+        # Last significant swing high and low (most recent of each)
+        sh_date, swing_high = swing_highs[-1]
+        sl_date, swing_low = swing_lows[-1]
+        price_range = abs(swing_high - swing_low)
+        if price_range < 1e-9:
+            return signals, values, fib_levels
+
+        # Trend: if swing low is before swing high → uptrend (retracement from high)
+        uptrend = sl_date < sh_date
+        low_price = min(swing_high, swing_low)
+        high_price = max(swing_high, swing_low)
+
+        # Retracement levels (0, 23.6, 38.2, 50, 61.8, 78.6, 100)
+        retrace_pcts = (0.0, 23.6, 38.2, 50.0, 61.8, 78.6, 100.0)
+        levels = {}
+        for pct in retrace_pcts:
+            level = low_price + (pct / 100.0) * (high_price - low_price)
+            key = f"Fib_Retrace_{int(pct) if pct == int(pct) else str(pct).replace('.', '')}"
+            levels[key] = level
+            values[key] = level
+
+        values['Fib_SwingHigh'] = swing_high
+        values['Fib_SwingLow'] = swing_low
+        values['Fib_Trend'] = 1.0 if uptrend else -1.0
+
+        # Extensions (127.2%, 161.8% beyond the range)
+        if uptrend:
+            values['Fib_Ext_1272'] = high_price + 0.272 * price_range
+            values['Fib_Ext_1618'] = high_price + 0.618 * price_range
+        else:
+            values['Fib_Ext_1272'] = low_price - 0.272 * price_range
+            values['Fib_Ext_1618'] = low_price - 0.618 * price_range
+
+        current_price = float(df['Close'].iloc[-1])
+        tolerance_pct = 0.02  # 2% of price for "at level"
+        key_levels = [(38.2, 38.2), (50.0, 50.0), (61.8, 61.8)]
+        nearest_pct = None
+        for pct, _ in key_levels:
+            level = low_price + (pct / 100.0) * (high_price - low_price)
+            if abs(current_price - level) / (current_price or 1) <= tolerance_pct:
+                nearest_pct = pct
+                if uptrend:
+                    # In uptrend, price near support (e.g. 61.8) is bullish
+                    signals.append(TechnicalSignal(
+                        symbol=symbol,
+                        date=date,
+                        indicator="Fibonacci",
+                        signal_type=SignalType.BULLISH,
+                        strength=SignalStrength.MODERATE,
+                        value=current_price,
+                        threshold=level,
+                        description=f"At {pct}% Fibonacci support"
+                    ))
+                else:
+                    signals.append(TechnicalSignal(
+                        symbol=symbol,
+                        date=date,
+                        indicator="Fibonacci",
+                        signal_type=SignalType.BEARISH,
+                        strength=SignalStrength.MODERATE,
+                        value=current_price,
+                        threshold=level,
+                        description=f"At {pct}% Fibonacci resistance"
+                    ))
+                break
+        if nearest_pct is not None:
+            values['Fib_NearestLevel'] = float(nearest_pct)
+
+        fib_levels = {
+            "swing_high": swing_high,
+            "swing_low": swing_low,
+            "trend": "up" if uptrend else "down",
+            "levels": {k: v for k, v in levels.items()},
+            "current_price": current_price,
+        }
+        return signals, values, fib_levels
+
+    def _analyze_elliott_wave(
+        self, symbol: str, df: pd.DataFrame, date: str
+    ) -> Tuple[List[TechnicalSignal], Dict[str, float], Optional[Dict]]:
+        """
+        Simplified rule-based Elliott Wave interpretation from swing points.
+        Classifies current phase (e.g. Wave 3, Wave 5, Corrective) and emits optional signals.
+        """
+        signals: List[TechnicalSignal] = []
+        values: Dict[str, float] = {}
+        ew: Optional[Dict] = None
+
+        swing_highs, swing_lows = self._get_swing_points(df, window=5, lookback_bars=120)
+        if len(swing_highs) < 2 or len(swing_lows) < 2:
+            return signals, values, ew
+
+        # Build alternating pivot list (date, price, is_high) chronological
+        pivots: List[Tuple[str, float, bool]] = []
+        seen_dates = set()
+        for d, p in swing_highs:
+            if d not in seen_dates:
+                pivots.append((d, p, True))
+                seen_dates.add(d)
+        for d, p in swing_lows:
+            if d not in seen_dates:
+                pivots.append((d, p, False))
+                seen_dates.add(d)
+        pivots.sort(key=lambda x: x[0])
+        if len(pivots) < 3:
+            return signals, values, ew
+
+        # Classify: try to see last move as impulse (5 waves) or corrective (3)
+        current_price = float(df['Close'].iloc[-1])
+        phase = "Unclear"
+        direction = 0  # 1 up, -1 down
+        confidence = 0.0
+        wave_label = ""
+
+        # Last few pivots
+        last = pivots[-7:]
+        # Check if we end on a high or low
+        last_is_high = last[-1][2]
+        prev_low = next((p[1] for p in reversed(last) if not p[2]), None)
+        prev_high = next((p[1] for p in reversed(last) if p[2]), None)
+        if prev_low is None or prev_high is None:
+            values['Elliott_Confidence'] = 0.0
+            ew = {"phase": phase, "direction": direction, "confidence": confidence, "wave_label": wave_label}
+            return signals, values, ew
+
+        last_high = last[-1][1] if last[-1][2] else prev_high
+        last_low = last[-1][1] if not last[-1][2] else prev_low
+
+        # Simple heuristic: compare last swing range to previous
+        if last_is_high:
+            move_up = last_high - prev_low
+            move_down_prior = prev_high - prev_low if prev_high else 0
+            if move_down_prior > 1e-9 and move_up > move_down_prior * 0.6:
+                # Possible impulse up: wave 3 or 5
+                direction = 1
+                if move_up >= move_down_prior:
+                    phase = "Impulse"
+                    wave_label = "Wave 3 or 5 (up)"
+                    confidence = 0.5
+                else:
+                    phase = "Impulse"
+                    wave_label = "Wave 1 or 3 (up)"
+                    confidence = 0.4
+        else:
+            move_down = prev_high - last_low
+            move_up_prior = prev_high - prev_low if prev_low else 0
+            if move_up_prior > 1e-9 and move_down > move_up_prior * 0.38 and move_down < move_up_prior:
+                # Possible pullback (wave 2 or 4)
+                direction = -1
+                phase = "Corrective"
+                wave_label = "Wave 2 or 4 (pullback)"
+                confidence = 0.45
+            elif move_down > move_up_prior:
+                direction = -1
+                phase = "Corrective"
+                wave_label = "Corrective A or C"
+                confidence = 0.4
+
+        values['Elliott_Confidence'] = confidence
+        if direction != 0:
+            values['Elliott_Direction'] = float(direction)
+
+        ew = {
+            "phase": phase,
+            "direction": direction,
+            "confidence": confidence,
+            "wave_label": wave_label or phase,
+        }
+
+        # Actionable signals
+        if "Wave 3" in wave_label or "Wave 5" in wave_label:
+            if direction == 1:
+                signals.append(TechnicalSignal(
+                    symbol=symbol,
+                    date=date,
+                    indicator="Elliott_Wave",
+                    signal_type=SignalType.BULLISH,
+                    strength=SignalStrength.MODERATE,
+                    value=current_price,
+                    description=f"Elliott: {wave_label}"
+                ))
+        if "Wave 5 complete" in wave_label:
+            # Caution: wave 5 complete often precedes pullback
+            signals.append(TechnicalSignal(
+                symbol=symbol,
+                date=date,
+                indicator="Elliott_Wave",
+                signal_type=SignalType.BEARISH,
+                strength=SignalStrength.WEAK,
+                value=current_price,
+                description="Elliott: Wave 5 complete (caution)"
+            ))
+        if "Wave 2 or 4" in wave_label and direction == -1:
+            signals.append(TechnicalSignal(
+                symbol=symbol,
+                date=date,
+                indicator="Elliott_Wave",
+                signal_type=SignalType.BULLISH,
+                strength=SignalStrength.WEAK,
+                value=current_price,
+                description=f"Elliott: {wave_label} (potential reversal)"
+            ))
+
+        return signals, values, ew
+
     def _aggregate_signals(self, signals: List[TechnicalSignal]) -> Tuple[SignalType, float]:
         """
         Aggregate multiple signals into overall bias and confidence
@@ -778,13 +1097,344 @@ class PSXTechnicalAgent:
         else:
             overall_bias = SignalType.NEUTRAL
 
-        # Calculate confidence (0.0 to 1.0)
-        if total_weight > 0:
-            confidence = abs(bullish_weight - bearish_weight) / total_weight
+        # Confidence (0.0 to 1.0): agreement among *directional* signals only.
+        # Use directional weight in denominator so NEUTRAL signals don't dilute confidence.
+        # When all directional signals agree, confidence = 1.0; when split, proportionally lower.
+        total_directional = bullish_weight + bearish_weight
+        if total_directional > 0:
+            confidence = abs(bullish_weight - bearish_weight) / total_directional
+            # Scale by fraction of weight that is directional (1 signal among many neutrals = lower confidence)
+            if total_weight > 0:
+                directional_fraction = total_directional / total_weight
+                confidence = confidence * (0.6 + 0.4 * directional_fraction)
         else:
-            confidence = 0.0
+            # All signals NEUTRAL: use a small non-zero confidence when we had signals (indicators were checked, no clear direction)
+            confidence = 0.15 if total_weight > 0 else 0.0
 
-        return overall_bias, confidence
+        return overall_bias, min(1.0, confidence)
+
+    def _compute_scores(
+        self,
+        signals: List[TechnicalSignal],
+        indicator_values: Optional[Dict[str, float]] = None,
+        current_price: Optional[float] = None,
+    ) -> Tuple[int, int, int]:
+        """
+        Compute trend-following score, mean-reversion score, and overall technical score (1-100).
+        50 = neutral; >50 = bullish strength; <50 = bearish strength.
+        When indicator_values is provided, blends signal-based scores with value-based contributions
+        (RSI, MACD, price vs SMAs, Fib, Elliott) so the score reflects state even without discrete signals.
+        """
+        strength_weights = {
+            SignalStrength.STRONG: 3,
+            SignalStrength.MODERATE: 2,
+            SignalStrength.WEAK: 1,
+        }
+
+        def net_for_indicators(indicators: set) -> Tuple[float, float]:
+            """Returns (net_direction -1..1, total_weight)."""
+            bullish_w = 0.0
+            bearish_w = 0.0
+            for s in signals:
+                if s.indicator not in indicators:
+                    continue
+                w = strength_weights.get(s.strength, 1)
+                if s.signal_type in (SignalType.BULLISH, SignalType.OVERSOLD):
+                    bullish_w += w
+                elif s.signal_type in (SignalType.BEARISH, SignalType.OVERBOUGHT):
+                    bearish_w += w
+            total = bullish_w + bearish_w
+            if total <= 0:
+                return 0.0, 0.0
+            net = (bullish_w - bearish_w) / total
+            return net, total
+
+        trend_net, trend_w = net_for_indicators(TREND_INDICATORS)
+        mr_net, mr_w = net_for_indicators(MEAN_REVERSION_INDICATORS)
+
+        trend_score = 50 + int(round(50 * trend_net)) if trend_w > 0 else 50
+        mean_reversion_score = 50 + int(round(50 * mr_net)) if mr_w > 0 else 50
+
+        # Value-based contribution from raw indicators (when provided)
+        iv = indicator_values or {}
+        trend_value = 50.0
+        mr_value = 50.0
+
+        def _safe(v: Optional[float]) -> float:
+            if v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
+                return np.nan
+            return float(v)
+
+        # Mean-reversion: RSI and Stochastic (0-100 scale; <40 bullish, >60 bearish)
+        rsi = _safe(iv.get("RSI"))
+        if not np.isnan(rsi):
+            mr_value = 50.0 + (50 - rsi) * 0.5  # RSI 0 -> 75, RSI 100 -> 25
+        stoch_k = _safe(iv.get("Stochastic_K"))
+        if not np.isnan(stoch_k):
+            stoch_contrib = (50 - stoch_k) * 0.3
+            mr_value = 50.0 + (mr_value - 50.0) * 0.6 + stoch_contrib * 0.4 if not np.isnan(rsi) else 50.0 + stoch_contrib
+        if not np.isnan(mr_value):
+            mr_value = max(1.0, min(100.0, mr_value))
+
+        # Trend: MACD histogram, price vs SMAs, Fib_Trend, Elliott
+        macd_hist = _safe(iv.get("MACD_Histogram"))
+        if not np.isnan(macd_hist):
+            trend_value = 50.0 + np.sign(macd_hist) * min(25, abs(macd_hist) * 10)
+        sma20 = _safe(iv.get("SMA_20"))
+        sma50 = _safe(iv.get("SMA_50"))
+        sma200 = _safe(iv.get("SMA_200"))
+        price = _safe(current_price) if current_price is not None else np.nan
+        if not np.isnan(price) and (not np.isnan(sma20) or not np.isnan(sma50) or not np.isnan(sma200)):
+            above = 0
+            if not np.isnan(sma200) and sma200 != 0:
+                above += 1 if price > sma200 else -1
+            if not np.isnan(sma50) and sma50 != 0:
+                above += 1 if price > sma50 else -1
+            if not np.isnan(sma20) and sma20 != 0:
+                above += 1 if price > sma20 else -1
+            if above != 0:
+                sma_contrib = 50.0 + above * 10.0
+                trend_value = (trend_value + sma_contrib) / 2.0 if not np.isnan(macd_hist) else sma_contrib
+        fib_trend = _safe(iv.get("Fib_Trend"))
+        if not np.isnan(fib_trend) and fib_trend != 0:
+            trend_value = trend_value + np.sign(fib_trend) * 5.0
+        elliott_conf = _safe(iv.get("Elliott_Confidence"))
+        elliott_dir = _safe(iv.get("Elliott_Direction"))
+        if not np.isnan(elliott_conf) and not np.isnan(elliott_dir) and elliott_conf > 0:
+            trend_value = trend_value + elliott_dir * 5.0 * elliott_conf
+        if not np.isnan(trend_value):
+            trend_value = max(1.0, min(100.0, trend_value))
+
+        # Blend: 60% signal-based, 40% value-based when value contribution is available
+        use_trend_value = indicator_values and not np.isnan(trend_value) and (not np.isnan(macd_hist) or not np.isnan(price) or not np.isnan(_safe(iv.get("Fib_Trend"))) or not np.isnan(elliott_conf))
+        use_mr_value = indicator_values and (not np.isnan(rsi) or not np.isnan(stoch_k)) and not np.isnan(mr_value)
+        if use_trend_value:
+            trend_score = int(round(0.6 * trend_score + 0.4 * trend_value))
+        if use_mr_value:
+            mean_reversion_score = int(round(0.6 * mean_reversion_score + 0.4 * mr_value))
+
+        # Overall: average of the two category scores (each 1-100), clamped
+        technical_score = (trend_score + mean_reversion_score) // 2
+        trend_score = max(1, min(100, trend_score))
+        mean_reversion_score = max(1, min(100, mean_reversion_score))
+        technical_score = max(1, min(100, technical_score))
+
+        return trend_score, mean_reversion_score, technical_score
+
+    # ===================================================================
+    # AI SUMMARY AND BUY/SELL CALL
+    # ===================================================================
+
+    def _build_technical_context(self, snapshot: TechnicalSnapshot) -> str:
+        """Build a concise text description of the snapshot for LLM or rule-based summary."""
+        lines = [
+            f"Symbol: {snapshot.symbol}, Date: {snapshot.date}",
+            f"Overall bias: {snapshot.overall_bias.value}, Confidence: {snapshot.confidence:.0%}",
+            f"Scores (1-100): technical={snapshot.technical_score}, trend={snapshot.trend_score}, mean_reversion={snapshot.mean_reversion_score}",
+        ]
+        key_inds = ["RSI", "MACD", "SMA_20", "SMA_50", "SMA_200", "Fib_SwingHigh", "Fib_SwingLow", "Fib_Trend", "Elliott_Confidence"]
+        for k in key_inds:
+            v = snapshot.indicator_values.get(k)
+            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                lines.append(f"  {k}: {v}")
+        if snapshot.signals:
+            lines.append("Signals:")
+            for s in snapshot.signals[:12]:
+                lines.append(f"  - {s.indicator}: {s.signal_type.value} ({s.strength.value}) — {s.description or s.value}")
+        if snapshot.fibonacci_levels:
+            fl = snapshot.fibonacci_levels
+            lines.append(f"Fibonacci: trend={fl.get('trend')}, swing_high={fl.get('swing_high')}, swing_low={fl.get('swing_low')}")
+        if snapshot.elliott_wave:
+            ew = snapshot.elliott_wave
+            lines.append(f"Elliott: {ew.get('wave_label') or ew.get('phase')} (confidence={ew.get('confidence')})")
+        return "\n".join(lines)
+
+    def _generate_summary_and_call(
+        self, snapshot: TechnicalSnapshot
+    ) -> Tuple[str, str, str]:
+        """
+        Generate a short technical summary and a Buy/Hold/Sell call with rationale.
+        Uses LLM when self.llm_client is set; otherwise uses rule-based logic.
+        Returns (ai_summary, ai_call, ai_call_rationale).
+        """
+        context = self._build_technical_context(snapshot)
+        if self.llm_client:
+            try:
+                return self._generate_summary_and_call_llm(context, snapshot)
+            except Exception as e:
+                if hasattr(e, "args") and e.args:
+                    print(f"  Warning: LLM technical summary failed ({e.args[0]}), using rule-based.", file=sys.stderr)
+                else:
+                    print(f"  Warning: LLM technical summary failed, using rule-based.", file=sys.stderr)
+        return self._generate_summary_and_call_rule_based(snapshot)
+
+    def _generate_summary_and_call_llm(
+        self, context: str, snapshot: TechnicalSnapshot
+    ) -> Tuple[str, str, str]:
+        """Use LLM to produce technical summary and call with rationale."""
+        system = (
+            "You are a technical analyst for the Pakistan Stock Exchange (PSX). "
+            "Given a technical snapshot (indicators, signals, scores), respond with a technical summary that "
+            "references specific indicator levels (e.g. RSI value, price vs SMA(200), MACD state, Fibonacci level), "
+            "a single call (Buy, Hold, or Sell), and a rationale that cites which indicators support the call "
+            "and which are mixed or against. Be evidence-based and concise."
+        )
+        user = (
+            "Technical snapshot:\n" + context + "\n\n"
+            "Respond in JSON only, with exactly these keys (no other text):\n"
+            '"summary": "2-4 sentences describing the technical picture. Reference specific levels: e.g. RSI at X, '
+            'price above/below SMA(200), MACD positive/negative, Fibonacci trend, key signals.",\n'
+            '"call": "Buy" or "Hold" or "Sell",\n'
+            '"rationale": "2-3 sentences. Cite which indicators support this call and which are mixed or against. '
+            'Optionally add a brief risk note (e.g. stop level or what would add conviction)."'
+        )
+        try:
+            reply = self.llm_client(
+                messages=[{"role": "user", "content": user}],
+                system_prompt=system,
+                temperature=0.3,
+                max_tokens=600,
+            )
+        except TypeError:
+            reply = self.llm_client(messages=[{"role": "user", "content": user}], system_prompt=system)
+        reply = reply.strip()
+        # Try to parse JSON (handle markdown code block)
+        json_str = reply
+        m = re.search(r"```(?:json)?\s*([\s\S]*?)```", reply)
+        if m:
+            json_str = m.group(1).strip()
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            data = {}
+        summary = (data.get("summary") or "").strip() or "Technical summary could not be generated."
+        call_raw = (data.get("call") or "").strip().capitalize()
+        if call_raw not in ("Buy", "Hold", "Sell"):
+            call_raw = "Hold"
+        rationale = (data.get("rationale") or "").strip() or "See indicator scores and signals above."
+        return summary, call_raw, rationale
+
+    def _generate_summary_and_call_rule_based(self, snapshot: TechnicalSnapshot) -> Tuple[str, str, str]:
+        """Rule-based technical summary and Buy/Hold/Sell call with rationale.
+        Builds indicator-specific sentences and rationale that cite specific levels and signals.
+        """
+        def _v(k: str):
+            val = snapshot.indicator_values.get(k)
+            if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
+                return None
+            return val
+
+        bias = snapshot.overall_bias.value
+        conf = snapshot.confidence
+        ts = snapshot.technical_score
+        trend = snapshot.trend_score
+        parts = []
+
+        # Indicator-specific sentences (2-4)
+        rsi = _v("RSI")
+        if rsi is not None:
+            if rsi < 35:
+                parts.append(f"RSI at {rsi:.0f} suggests oversold and potential mean reversion up.")
+            elif rsi > 65:
+                parts.append(f"RSI at {rsi:.0f} suggests overbought; watch for pullback.")
+            else:
+                parts.append(f"RSI at {rsi:.0f} is in neutral territory.")
+
+        price = _v("Close")
+        if price is None and snapshot.fibonacci_levels:
+            price = snapshot.fibonacci_levels.get("current_price")
+        sma20, sma50, sma200 = _v("SMA_20"), _v("SMA_50"), _v("SMA_200")
+        if price is not None and (sma200 is not None or sma50 is not None):
+            above = []
+            if sma200 is not None and price > sma200:
+                above.append("above SMA(200)")
+            elif sma200 is not None:
+                above.append("below SMA(200)")
+            if sma50 is not None and price > sma50:
+                above.append("above SMA(50)")
+            elif sma50 is not None:
+                above.append("below SMA(50)")
+            if above:
+                parts.append(f"Price holds {', '.join(above)}.")
+
+        macd_hist = _v("MACD_Histogram")
+        if macd_hist is not None:
+            if macd_hist > 0:
+                parts.append("MACD histogram is positive, supporting short-term momentum.")
+            else:
+                parts.append("MACD histogram is negative; momentum is weak or fading.")
+
+        if snapshot.fibonacci_levels:
+            fl = snapshot.fibonacci_levels
+            tr = fl.get("trend")
+            parts.append(f"Fibonacci context: trend {tr or 'N/A'} from recent swing; price near key retracement levels.")
+
+        if snapshot.elliott_wave and snapshot.elliott_wave.get("wave_label"):
+            parts.append(f"Elliott Wave: {snapshot.elliott_wave.get('wave_label')} (confidence {snapshot.elliott_wave.get('confidence', 0):.0%}).")
+
+        if getattr(snapshot, "divergences", None) and len(snapshot.divergences) > 0:
+            parts.append("Divergence(s) present between price and indicator(s), which can precede reversals.")
+
+        if getattr(snapshot, "patterns", None) and len(snapshot.patterns) > 0:
+            parts.append("Chart pattern(s) detected; consider pattern implications for target and invalidation.")
+
+        # Overall and key signals
+        parts.append(f"Overall bias is {bias} with {conf:.0%} confidence; technical score {ts}/100 (trend {trend}/100).")
+        bullet_signals = [s for s in snapshot.signals if s.signal_type != SignalType.NEUTRAL][:5]
+        if bullet_signals:
+            parts.append("Key signals: " + "; ".join(s.description or f"{s.indicator} {s.signal_type.value}" for s in bullet_signals) + ".")
+        else:
+            parts.append("No strong discrete signals; view is driven by indicator levels and structure.")
+
+        summary = " ".join(parts)
+
+        # Call: nuanced thresholds (strong Buy/Sell when score and confidence higher)
+        if bias == "Bullish" and conf >= 0.5 and ts >= 55:
+            call = "Buy"
+            support = []
+            if rsi is not None and rsi < 45:
+                support.append("oversold or neutral RSI")
+            if macd_hist is not None and macd_hist > 0:
+                support.append("positive MACD")
+            if price is not None and sma200 is not None and price > sma200:
+                support.append("price above SMA(200)")
+            if snapshot.fibonacci_levels and snapshot.fibonacci_levels.get("trend") == "up":
+                support.append("Fibonacci uptrend structure")
+            support_str = "; ".join(support) if support else "bias and score"
+            contradict = []
+            if rsi is not None and rsi > 70:
+                contradict.append("RSI overbought—wait for pullback")
+            if macd_hist is not None and macd_hist < 0:
+                contradict.append("MACD negative—crossover would add conviction")
+            rationale = f"Technical score {ts} and {conf:.0%} confidence support a buy. Supporting factors: {support_str}."
+            if contradict:
+                rationale += f" Mixed: {contradict[0]}."
+            rationale += " Consider stop below recent swing low."
+        elif bias == "Bearish" and conf >= 0.5 and ts <= 45:
+            call = "Sell"
+            support = []
+            if rsi is not None and rsi > 55:
+                support.append("overbought or weak RSI")
+            if macd_hist is not None and macd_hist < 0:
+                support.append("negative MACD")
+            if price is not None and sma200 is not None and price < sma200:
+                support.append("price below SMA(200)")
+            support_str = "; ".join(support) if support else "bias and score"
+            rationale = f"Technical score {ts} and {conf:.0%} confidence suggest caution or reduction. Supporting factors: {support_str}."
+            rationale += " Wait for improvement (e.g. RSI oversold or MACD bullish crossover) before adding."
+        else:
+            call = "Hold"
+            rationale = f"Technical picture is mixed or neutral (bias {bias}, score {ts})."
+            if rsi is not None or macd_hist is not None:
+                mixed = []
+                if rsi is not None:
+                    mixed.append(f"RSI {rsi:.0f}")
+                if macd_hist is not None:
+                    mixed.append("MACD " + ("positive" if macd_hist > 0 else "negative"))
+                rationale += f" Indicators are mixed ({', '.join(mixed)})."
+            rationale += " Wait for clearer alignment of signals or confirmation before committing."
+
+        return summary, call, rationale
 
     # ===================================================================
     # MULTI-TIMEFRAME ANALYSIS METHODS
@@ -811,7 +1461,10 @@ class PSXTechnicalAgent:
                 signals=[],
                 overall_bias=SignalType.NEUTRAL,
                 confidence=0.0,
-                indicator_values={}
+                indicator_values={},
+                trend_score=50,
+                mean_reversion_score=50,
+                technical_score=50,
             )
 
         # Compute all indicators on weekly data
@@ -839,8 +1492,24 @@ class PSXTechnicalAgent:
         for key, value in sma_values.items():
             indicator_values[f"{key}_Weekly"] = value
 
+        # Fibonacci and Elliott on weekly
+        fibonacci_levels = None
+        elliott_wave = None
+        fib_signals, fib_values, fibonacci_levels = self._analyze_fibonacci(symbol, df, latest_date)
+        signals.extend(fib_signals)
+        for key, value in fib_values.items():
+            indicator_values[f"{key}_Weekly"] = value
+        ew_signals, ew_values, elliott_wave = self._analyze_elliott_wave(symbol, df, latest_date)
+        signals.extend(ew_signals)
+        for key, value in ew_values.items():
+            indicator_values[f"{key}_Weekly"] = value
+
         # Aggregate signals into overall bias
         overall_bias, confidence = self._aggregate_signals(signals)
+        current_price_weekly = float(df["Close"].iloc[-1]) if len(df) > 0 else None
+        trend_score, mean_reversion_score, technical_score = self._compute_scores(
+            signals, indicator_values=indicator_values, current_price=current_price_weekly
+        )
 
         return TechnicalSnapshot(
             symbol=symbol,
@@ -848,7 +1517,12 @@ class PSXTechnicalAgent:
             signals=signals,
             overall_bias=overall_bias,
             confidence=confidence,
-            indicator_values=indicator_values
+            indicator_values=indicator_values,
+            fibonacci_levels=fibonacci_levels,
+            elliott_wave=elliott_wave,
+            trend_score=trend_score,
+            mean_reversion_score=mean_reversion_score,
+            technical_score=technical_score,
         )
 
     def analyze_multi_timeframe(self, symbol: str) -> MultiTimeframeSnapshot:

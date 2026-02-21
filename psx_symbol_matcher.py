@@ -4,8 +4,16 @@ Maps company names in news articles to stock symbols
 """
 
 import re
+import math
 from typing import List, Tuple, Dict, Set, Optional
 from rapidfuzz import fuzz
+
+# Single-word aliases that are too generic to match alone (avoid false positives)
+GENERIC_WORD_BLOCKLIST = {
+    "united", "national", "pakistan", "bank", "banks", "limited", "company",
+    "ltd", "the", "oil", "gas", "cement", "power", "steel", "textile", "food",
+    "foods", "group", "corporation", "industries", "mill", "mills", "company",
+}
 
 
 class PSXSymbolMatcher:
@@ -152,14 +160,41 @@ class PSXSymbolMatcher:
         return mappings
 
     def _generate_aliases(self, symbol: str, full_name: str) -> List[str]:
-        """Generate common aliases for a company"""
+        """Generate common aliases for a company (multi-word and discriminative where possible)."""
         aliases = []
 
         # Remove "Limited", "Pakistan", etc.
         short_name = full_name.replace(" Limited", "").replace(" Pakistan", "")
         aliases.append(short_name)
 
-        # Extract brand name (first word usually)
+        # Multi-word discriminative phrases (sector-qualified to avoid location-only false matches)
+        discriminative = {
+            "HBL": ["Habib Bank", "Habib Bank Limited"],
+            "UBL": ["United Bank", "United Bank Limited"],
+            "MCB": ["MCB Bank", "MCB Bank Limited"],
+            "PSO": ["Pakistan State Oil", "State Oil"],
+            "OGDC": ["Oil & Gas Development", "OGDC Limited"],
+            "PPL": ["Pakistan Petroleum", "Pakistan Petroleum Limited"],
+            "FFC": ["Fauji Fertilizer", "Fauji Fertilizer Company"],
+            "FHAM": ["Fauji Foods", "Fauji Foods Limited"],
+            "FCCL": ["Fauji Cement", "Fauji Cement Company"],
+            "LUCK": ["Lucky Cement", "Lucky Cement Limited"],
+            "DGKC": ["D.G. Khan Cement", "DG Khan Cement"],
+            "KOHC": ["Kohat Cement", "Kohat Cement Company"],
+            "ACPL": ["Attock Cement", "Attock Cement Pakistan"],
+            "PIOC": ["Pioneer Cement"],
+            "MLCF": ["Maple Leaf Cement"],
+            "EFERT": ["Engro Fertilizers", "Engro Fertilizers Limited"],
+            "EFOODS": ["Engro Foods", "Engro Foods Limited"],
+            "HUBC": ["Hub Power", "Hub Power Company"],
+            "NML": ["Nishat Mills", "Nishat Mills Limited"],
+            "NCL": ["Nishat Chunian", "Nishat Chunian Limited"],
+            "DAWH": ["Dawood Hercules", "Dawood Hercules Corporation"],
+        }
+        if symbol in discriminative:
+            aliases.extend(discriminative[symbol])
+
+        # First word only if not generic (used for reverse index filtering later)
         words = full_name.split()
         if len(words) > 1:
             aliases.append(words[0])
@@ -201,37 +236,35 @@ class PSXSymbolMatcher:
         return 'Other'
 
     def _build_reverse_index(self) -> Dict[str, str]:
-        """Build reverse index: company name variants -> symbol"""
+        """Build reverse index: full names and multi-word aliases only (no single-word keywords)."""
         index = {}
 
         for symbol, data in self.stock_mappings.items():
-            # Full name
+            # Full name always
             index[data['full_name'].lower()] = symbol
 
-            # Aliases
+            # Aliases: multi-word only (avoids false positives from "khan", "communication", etc.)
             for alias in data['aliases']:
-                index[alias.lower()] = symbol
-
-            # Keywords (only unique ones)
-            for keyword in data['keywords']:
-                if keyword not in index or len(keyword) > 4:
-                    index[keyword.lower()] = symbol
+                key = alias.lower().strip()
+                if not key or " " not in key:
+                    continue
+                index[key] = symbol
 
         return index
 
     def find_mentioned_symbols(self, text: str) -> List[Tuple[str, float]]:
         """
-        Find all stock symbols mentioned in text
+        Find all stock symbols mentioned in text.
 
         Returns:
-            List of (symbol, confidence) tuples
+            List of (symbol, confidence) tuples. Weak matches below MIN_CONFIDENCE are dropped.
         """
+        MIN_CONFIDENCE = 0.55
         text_lower = text.lower()
         mentions = {}
 
         # Method 1: Exact symbol match (highest confidence)
         for symbol in self.stock_mappings.keys():
-            # Look for symbol as standalone word
             pattern = r'\b' + re.escape(symbol) + r'\b'
             if re.search(pattern, text, re.IGNORECASE):
                 mentions[symbol] = max(mentions.get(symbol, 0), 1.0)
@@ -241,53 +274,87 @@ class PSXSymbolMatcher:
             if data['full_name'].lower() in text_lower:
                 mentions[symbol] = max(mentions.get(symbol, 0), 0.95)
 
-        # Method 3: Alias match
+        # Method 3: Multi-word alias match only
         for key, symbol in self.reverse_index.items():
             if len(key) > 3 and key in text_lower:
-                # Fuzzy match to avoid false positives
                 mentions[symbol] = max(mentions.get(symbol, 0), 0.7)
 
-        # Method 4: Keyword match (lower confidence)
-        for symbol, data in self.stock_mappings.items():
-            keyword_matches = sum(1 for kw in data['keywords'] if kw in text_lower)
-            if keyword_matches >= 2:  # Multiple keywords increase confidence
-                mentions[symbol] = max(mentions.get(symbol, 0), 0.6)
-
-        # Sort by confidence
+        # Drop weak matches
+        mentions = {s: c for s, c in mentions.items() if c >= MIN_CONFIDENCE}
         return sorted(mentions.items(), key=lambda x: x[1], reverse=True)
 
     def determine_primary_symbol(self, mentions: List[Tuple[str, float]], text: str = "") -> Optional[str]:
         """
-        Determine the primary stock symbol from mentions
-
-        Args:
-            mentions: List of (symbol, confidence) tuples
-            text: Original text (used for title weighting)
-
-        Returns:
-            Primary symbol or None
+        Determine the primary stock symbol from mentions using confidence,
+        frequency in text, title/lead weighting, and tie-break by earliest mention.
         """
         if not mentions:
             return None
 
-        # If only one mention, return it
         if len(mentions) == 1:
             return mentions[0][0]
 
-        # Weight by confidence and frequency
-        scores = {}
-        for symbol, confidence in mentions:
-            scores[symbol] = confidence
+        text_lower = text.lower() if text else ""
+        title_zone = text_lower[:200]  # Title and lead (first ~200 chars)
 
-        # Boost score if mentioned in first 100 characters (likely in title)
-        if text:
-            text_start = text[:100].lower()
-            for symbol, _ in mentions:
-                if symbol.lower() in text_start:
-                    scores[symbol] = scores.get(symbol, 0) * 1.5
+        # Base score from confidence
+        scores = {s: c for s, c in mentions}
 
-        # Return highest scoring symbol
-        return max(scores.items(), key=lambda x: x[1])[0] if scores else None
+        # Frequency: count occurrences of symbol, full name, and main aliases
+        for symbol, _ in mentions:
+            data = self.stock_mappings.get(symbol)
+            if not data:
+                continue
+            count = 0
+            pattern = r'\b' + re.escape(symbol) + r'\b'
+            count += len(re.findall(pattern, text, re.IGNORECASE))
+            if data['full_name'].lower() in text_lower:
+                count += 2  # full name is strong signal
+            for alias in data['aliases']:
+                if " " in alias and alias.lower() in text_lower:
+                    count += 1
+            if count > 0:
+                scores[symbol] = scores.get(symbol, 0) + math.log(1 + count) * 0.1
+
+        # Title/lead boost: symbol or full name or multi-word alias in first 200 chars
+        for symbol, _ in mentions:
+            data = self.stock_mappings.get(symbol)
+            if symbol.lower() in title_zone:
+                scores[symbol] = scores.get(symbol, 0) * 1.5
+                continue
+            if data and data['full_name'].lower() in title_zone:
+                scores[symbol] = scores.get(symbol, 0) * 1.5
+                continue
+            if data:
+                for alias in data.get('aliases', []):
+                    if " " in alias and alias.lower() in title_zone:
+                        scores[symbol] = scores.get(symbol, 0) * 1.5
+                        break
+
+        # Tie-break: when scores are close, prefer symbol that appears earliest in text
+        best_score = max(scores.values()) if scores else 0
+        candidates = [s for s, sc in scores.items() if sc >= best_score * 0.95]
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            return max(scores.items(), key=lambda x: x[1])[0] if scores else None
+
+        earliest_pos = {}
+        for symbol in candidates:
+            data = self.stock_mappings.get(symbol)
+            pos = len(text_lower)
+            pattern = r'\b' + re.escape(symbol) + r'\b'
+            m = re.search(pattern, text_lower)
+            if m:
+                pos = min(pos, m.start())
+            if data:
+                fn = data['full_name'].lower()
+                idx = text_lower.find(fn)
+                if idx != -1:
+                    pos = min(pos, idx)
+            earliest_pos[symbol] = pos
+
+        return min(candidates, key=lambda s: earliest_pos.get(s, len(text_lower)))
 
     def resolve_company_name(self, company_name: str) -> Optional[str]:
         """

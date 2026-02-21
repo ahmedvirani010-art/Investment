@@ -1,0 +1,151 @@
+/**
+ * PSX (Pakistan Stock Exchange) reference data aligned with official categories.
+ * Sectors follow PSX classifications: psx.com.pk/resources-and-tools/listings/listed-companies
+ * Stocks list from KSE-100 and actively traded scripts.
+ */
+
+export const PSX_SECTORS = [
+  { name: "Banks", code: "BANKS", displayOrder: 1 },
+  { name: "Oil & Gas", code: "OILGAS", displayOrder: 2 },
+  { name: "Cement", code: "CEMENT", displayOrder: 3 },
+  { name: "Fertilizer", code: "FERT", displayOrder: 4 },
+  { name: "Power Generation & Distribution", code: "POWER", displayOrder: 5 },
+  { name: "Textile", code: "TEXTILE", displayOrder: 6 },
+  { name: "Food & Personal Care", code: "FOOD", displayOrder: 7 },
+  { name: "Automobiles & Parts", code: "AUTO", displayOrder: 8 },
+  { name: "Chemicals", code: "CHEM", displayOrder: 9 },
+  { name: "Pharmaceuticals", code: "PHARMA", displayOrder: 10 },
+  { name: "Technology & Communication", code: "TECH", displayOrder: 11 },
+  { name: "Steel & Engineering", code: "STEEL", displayOrder: 12 },
+  { name: "Paper & Board", code: "PAPER", displayOrder: 13 },
+  { name: "Insurance", code: "INS", displayOrder: 14 },
+  { name: "Investment Companies", code: "INV", displayOrder: 15 },
+  { name: "Miscellaneous", code: "MISC", displayOrder: 16 },
+] as const;
+
+export type PSXStockEntry = { ticker: string; name: string; sector: string };
+
+/** Full list of PSX listed scripts with sector (aligned with PSX website categories) */
+export const PSX_STOCK_LIST: PSXStockEntry[] = [
+  // Banks
+  { ticker: "HBL", name: "Habib Bank Limited", sector: "Banks" },
+  { ticker: "UBL", name: "United Bank Limited", sector: "Banks" },
+  { ticker: "MCB", name: "MCB Bank Limited", sector: "Banks" },
+  { ticker: "BAFL", name: "Bank Alfalah Limited", sector: "Banks" },
+  { ticker: "ABL", name: "Allied Bank Limited", sector: "Banks" },
+  { ticker: "BAHL", name: "Bank Al-Habib Limited", sector: "Banks" },
+  { ticker: "MEBL", name: "Meezan Bank Limited", sector: "Banks" },
+  { ticker: "NBP", name: "National Bank of Pakistan", sector: "Banks" },
+  { ticker: "AKBL", name: "Askari Bank Limited", sector: "Banks" },
+  { ticker: "FABL", name: "Faysal Bank Limited", sector: "Banks" },
+  { ticker: "SNBL", name: "Soneri Bank Limited", sector: "Banks" },
+  { ticker: "BOP", name: "Bank of Punjab", sector: "Banks" },
+  { ticker: "HMB", name: "Habib Metropolitan Bank", sector: "Banks" },
+  { ticker: "SCBPL", name: "Standard Chartered Bank Pakistan", sector: "Banks" },
+  { ticker: "JSBL", name: "JS Bank Limited", sector: "Banks" },
+  { ticker: "SILK", name: "Silk Bank Limited", sector: "Banks" },
+  // Oil & Gas
+  { ticker: "OGDC", name: "Oil & Gas Development Company", sector: "Oil & Gas" },
+  { ticker: "PPL", name: "Pakistan Petroleum Limited", sector: "Oil & Gas" },
+  { ticker: "POL", name: "Pakistan Oilfields Limited", sector: "Oil & Gas" },
+  { ticker: "MARI", name: "Mari Petroleum Company Limited", sector: "Oil & Gas" },
+  { ticker: "PSO", name: "Pakistan State Oil", sector: "Oil & Gas" },
+  { ticker: "APL", name: "Attock Petroleum Limited", sector: "Oil & Gas" },
+  { ticker: "SSGC", name: "Sui Southern Gas Company", sector: "Oil & Gas" },
+  { ticker: "SNGP", name: "Sui Northern Gas Pipelines Limited", sector: "Oil & Gas" },
+  // Cement
+  { ticker: "LUCK", name: "Lucky Cement Limited", sector: "Cement" },
+  { ticker: "DGKC", name: "D.G. Khan Cement Company", sector: "Cement" },
+  { ticker: "MLCF", name: "Maple Leaf Cement Factory", sector: "Cement" },
+  { ticker: "PIOC", name: "Pioneer Cement Limited", sector: "Cement" },
+  { ticker: "CHCC", name: "Cherat Cement Company", sector: "Cement" },
+  { ticker: "FCCL", name: "Fauji Cement Company Limited", sector: "Cement" },
+  { ticker: "KOHC", name: "Kohat Cement Company Limited", sector: "Cement" },
+  { ticker: "ACPL", name: "Attock Cement Pakistan Limited", sector: "Cement" },
+  { ticker: "THCCL", name: "Thal Cement Limited", sector: "Cement" },
+  // Fertilizer
+  { ticker: "FFC", name: "Fauji Fertilizer Company", sector: "Fertilizer" },
+  { ticker: "EFERT", name: "Engro Fertilizers Limited", sector: "Fertilizer" },
+  { ticker: "FATIMA", name: "Fatima Fertilizer Company", sector: "Fertilizer" },
+  // Power
+  { ticker: "HUBC", name: "Hub Power Company", sector: "Power Generation & Distribution" },
+  { ticker: "KAPCO", name: "Kot Addu Power Company", sector: "Power Generation & Distribution" },
+  { ticker: "NPCC", name: "Nishat Power Limited", sector: "Power Generation & Distribution" },
+  { ticker: "LALPIR", name: "Lalpir Power Limited", sector: "Power Generation & Distribution" },
+  // Textile
+  { ticker: "GATM", name: "Gul Ahmed Textile Mills", sector: "Textile" },
+  { ticker: "NCL", name: "Nishat Chunian Limited", sector: "Textile" },
+  { ticker: "NML", name: "Nishat Mills Limited", sector: "Textile" },
+  { ticker: "KTML", name: "Kohinoor Textile Mills", sector: "Textile" },
+  // Food & Personal Care
+  { ticker: "NESTLE", name: "Nestle Pakistan Limited", sector: "Food & Personal Care" },
+  { ticker: "EFOODS", name: "Engro Foods Limited", sector: "Food & Personal Care" },
+  { ticker: "UNITY", name: "Unity Foods Limited", sector: "Food & Personal Care" },
+  { ticker: "RMPL", name: "Rafhan Maize Products Company", sector: "Food & Personal Care" },
+  { ticker: "FHAM", name: "Fauji Foods Limited", sector: "Food & Personal Care" },
+  { ticker: "CLOV", name: "Clover Pakistan Limited", sector: "Food & Personal Care" },
+  { ticker: "THALL", name: "Thal Limited", sector: "Food & Personal Care" },
+  // Automobiles & Parts
+  { ticker: "INDU", name: "Indus Motor Company", sector: "Automobiles & Parts" },
+  { ticker: "PSMC", name: "Pak Suzuki Motor Company", sector: "Automobiles & Parts" },
+  { ticker: "HCAR", name: "Honda Atlas Cars Pakistan", sector: "Automobiles & Parts" },
+  { ticker: "ATLH", name: "Atlas Honda Limited", sector: "Automobiles & Parts" },
+  { ticker: "MTL", name: "Millat Tractors Limited", sector: "Automobiles & Parts" },
+  { ticker: "GADT", name: "Ghandhara Automobiles Limited", sector: "Automobiles & Parts" },
+  { ticker: "HINOPAK", name: "Hinopak Motors Limited", sector: "Automobiles & Parts" },
+  // Chemicals
+  { ticker: "ENGRO", name: "Engro Corporation Limited", sector: "Chemicals" },
+  { ticker: "ICI", name: "ICI Pakistan Limited", sector: "Chemicals" },
+  { ticker: "EPCL", name: "Engro Polymer & Chemicals", sector: "Chemicals" },
+  { ticker: "LOTTE", name: "Lotte Chemical Pakistan", sector: "Chemicals" },
+  { ticker: "LOTCHEM", name: "Lotte Chemical Pakistan Limited", sector: "Chemicals" },
+  { ticker: "AICL", name: "Archroma Pakistan Limited", sector: "Chemicals" },
+  { ticker: "AKZO", name: "AkzoNobel Pakistan Limited", sector: "Chemicals" },
+  // Pharmaceuticals
+  { ticker: "GLAXO", name: "GlaxoSmithKline Pakistan", sector: "Pharmaceuticals" },
+  { ticker: "ABBOTT", name: "Abbott Laboratories Pakistan", sector: "Pharmaceuticals" },
+  { ticker: "ABOT", name: "Abbott Laboratories Pakistan", sector: "Pharmaceuticals" },
+  { ticker: "SEARL", name: "Searle Company Limited", sector: "Pharmaceuticals" },
+  { ticker: "FEROZ", name: "Ferozsons Laboratories Limited", sector: "Pharmaceuticals" },
+  { ticker: "AGTL", name: "AGP Limited", sector: "Pharmaceuticals" },
+  { ticker: "NATF", name: "Natco Pharma Limited", sector: "Pharmaceuticals" },
+  // Technology & Communication
+  { ticker: "TRG", name: "The Resource Group", sector: "Technology & Communication" },
+  { ticker: "SYS", name: "Systems Limited", sector: "Technology & Communication" },
+  { ticker: "NETSOL", name: "NetSol Technologies", sector: "Technology & Communication" },
+  { ticker: "AVN", name: "Avanceon Limited", sector: "Technology & Communication" },
+  { ticker: "PTCL", name: "Pakistan Telecommunication Company", sector: "Technology & Communication" },
+  { ticker: "WTL", name: "WorldCall Telecom Limited", sector: "Technology & Communication" },
+  { ticker: "AIRLINK", name: "Airlink Communication Limited", sector: "Technology & Communication" },
+  { ticker: "PACE", name: "Pace Pakistan Limited", sector: "Technology & Communication" },
+  // Steel & Engineering
+  { ticker: "ASTL", name: "Amreli Steels Limited", sector: "Steel & Engineering" },
+  { ticker: "ISL", name: "International Steels Limited", sector: "Steel & Engineering" },
+  { ticker: "ASL", name: "Aisha Steel Mills Limited", sector: "Steel & Engineering" },
+  { ticker: "MUGHAL", name: "Mughal Iron & Steel Industries", sector: "Steel & Engineering" },
+  { ticker: "SIEM", name: "Siemens Pakistan Engineering", sector: "Steel & Engineering" },
+  // Paper & Board
+  { ticker: "CPPL", name: "Century Paper & Board Mills", sector: "Paper & Board" },
+  { ticker: "CHERAT", name: "Cherat Packaging Limited", sector: "Paper & Board" },
+  { ticker: "PKGS", name: "Packages Limited", sector: "Paper & Board" },
+  // Insurance
+  { ticker: "ADMM", name: "Adamjee Insurance Company", sector: "Insurance" },
+  { ticker: "JPGL", name: "Jubilee Life Insurance", sector: "Insurance" },
+  // Investment Companies / Miscellaneous
+  { ticker: "PAEL", name: "Pakistan Aluminium Beverage Cans", sector: "Investment Companies" },
+  { ticker: "PIAA", name: "Pakistan International Airlines", sector: "Investment Companies" },
+  { ticker: "PIA", name: "Pakistan International Airlines", sector: "Investment Companies" },
+  { ticker: "PTC", name: "Pakistan Tobacco Company", sector: "Miscellaneous" },
+  { ticker: "SHEL", name: "Shell Pakistan Limited", sector: "Miscellaneous" },
+  { ticker: "COLG", name: "Colgate Palmolive Pakistan", sector: "Miscellaneous" },
+  { ticker: "UNILEVER", name: "Unilever Pakistan Limited", sector: "Miscellaneous" },
+  { ticker: "DAWH", name: "Dawood Hercules Corporation", sector: "Miscellaneous" },
+  { ticker: "LOADS", name: "Loads Limited", sector: "Miscellaneous" },
+  { ticker: "GTYR", name: "General Tyre & Rubber Company", sector: "Miscellaneous" },
+  { ticker: "BRRGM", name: "Berger Paints Pakistan Limited", sector: "Miscellaneous" },
+  { ticker: "SHFA", name: "Shifa International Hospital", sector: "Miscellaneous" },
+  { ticker: "WAVES", name: "Waves Singer Pakistan Limited", sector: "Miscellaneous" },
+  { ticker: "ADOS", name: "Ados Pakistan Limited", sector: "Miscellaneous" },
+  { ticker: "BNWM", name: "Bannu Woollen Mills Limited", sector: "Miscellaneous" },
+  { ticker: "FLYNG", name: "Faysal Bank Limited", sector: "Miscellaneous" },
+];

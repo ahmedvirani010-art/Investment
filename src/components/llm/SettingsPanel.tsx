@@ -41,7 +41,7 @@ const SettingsSchema = z.object({
 type SettingsValues = z.infer<typeof SettingsSchema>;
 
 interface SettingsPanelProps {
-  onModelSaved: (model: string) => void;
+  onModelSaved?: (model: string) => void;
 }
 
 export function SettingsPanel({ onModelSaved }: SettingsPanelProps) {
@@ -92,7 +92,7 @@ export function SettingsPanel({ onModelSaved }: SettingsPanelProps) {
       setHasApiKey(true);
       form.setValue("apiKey", ""); // clear field after save
       toast.success("Settings saved successfully");
-      onModelSaved(data.model);
+      onModelSaved?.(data.model);
     } catch {
       toast.error("Failed to save settings. Please try again.");
     } finally {
@@ -101,7 +101,7 @@ export function SettingsPanel({ onModelSaved }: SettingsPanelProps) {
   }
 
   return (
-    <Card className="max-w-xl">
+    <Card className="max-w-3xl">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bot className="size-5" />

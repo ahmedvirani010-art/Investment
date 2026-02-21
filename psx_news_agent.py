@@ -26,6 +26,33 @@ from psx_symbol_matcher import PSXSymbolMatcher
 from psx_sentiment_analyzer import PSXSentimentAnalyzer, SentimentResult
 
 
+# Keywords that indicate business/finance/economy content (include only articles matching at least one)
+BUSINESS_KEYWORDS = [
+    "stock", "stocks", "market", "share", "shares", "trading", "psx", "kse", "bourse",
+    "company", "companies", "corporation", "profit", "revenue", "earnings", "dividend",
+    "economy", "economic", "business", "bank", "banks", "banking", "sector", "industry",
+    "rupee", "rupees", "dollar", "currency", "forex", "exchange rate", "inflation",
+    "interest rate", "policy rate", "kibor", "sbp", "state bank",
+    "oil", "gas", "petroleum", "cement", "textile", "fertilizer", "power", "steel",
+    "tax", "fbr", "budget", "fiscal", "gdp", "growth", "export", "import",
+    "ipo", "listing", "quarterly", "financial", "balance sheet", "margin",
+    "investment", "investor", "portfolio", "mutual fund", "secp",
+]
+# Phrases that indicate non-business content (exclude if present in title or body)
+NON_BUSINESS_PHRASES = [
+    "cricket", "match score", "pakistan vs", "world cup", "ipl ", " t20 ",
+    "film release", "movie review", "box office", "celebrity", "entertainment",
+    "sports news", "football", "hockey", "squash",
+    # Olympics and general sports (checked in full text so body content is excluded too)
+    "olympics", "olympian", "olympians", "winter olympics", "summer games",
+    "gold medal", "silver medal", "bronze medal", "medal haul", "olympic medal",
+    "medal", "medals", "skating", "curling", "ice hockey", "short-track",
+    "athlete", "athletes", "nfl ", "nba ", "ufc", "all-star game",
+    "milan cortina", "cortina 2026", "championship", "sporting", " paralympic",
+    "euro 20", "premier league", "touchdown", "home run",
+]
+
+
 @dataclass
 class NewsSummary:
     """Summary of news fetching results"""
@@ -93,8 +120,26 @@ class PSXNewsAgent:
             except Exception as e:
                 print(f"   ✗ {source.name}: {str(e)}")
 
+        # Keep only business-related articles
+        before_filter = len(all_articles)
+        all_articles = [a for a in all_articles if self._is_business_related(a)]
+        if before_filter > len(all_articles):
+            print(f"\n📋 Filtered to business-related: {len(all_articles)} of {before_filter} articles kept")
         print(f"\n✅ Total articles fetched: {len(all_articles)}")
         return all_articles
+
+    def _is_business_related(self, article: NewsArticle) -> bool:
+        """Return True if the article appears to be business/finance/economy related."""
+        text = f"{article.title} {article.full_text or ''} {article.summary or ''}".lower()
+        # Exclude if any non-business phrase appears anywhere in title or body
+        for phrase in NON_BUSINESS_PHRASES:
+            if phrase in text:
+                return False
+        # Include only if at least one business keyword is present
+        for keyword in BUSINESS_KEYWORDS:
+            if keyword in text:
+                return True
+        return False
 
     def _fetch_rss_feed(self, source, cutoff_time: datetime, is_macro: bool = False) -> List[NewsArticle]:
         """Fetch articles from RSS feed"""

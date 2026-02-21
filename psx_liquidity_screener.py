@@ -252,18 +252,20 @@ class PSXLiquidityScreener:
             print(f"  ⚠️  Error fetching {symbol}: {str(e)[:50]}")
             return None
 
-    def screen_stocks(self, top_n: int = 100) -> List[StockLiquidity]:
+    def screen_stocks(self, top_n: int = 100, stocks_override: List[Tuple[str, str]] = None) -> List[StockLiquidity]:
         """
         Screen all PSX stocks and return top N by liquidity
 
         Args:
             top_n: Number of top stocks to return (default: 100)
+            stocks_override: Optional list of (symbol, name) to screen instead of built-in list (e.g. from DB).
 
         Returns:
             List of StockLiquidity objects sorted by traded value
         """
-        stocks = self.get_psx_stocks()
+        stocks = stocks_override if (stocks_override and len(stocks_override) > 0) else self.get_psx_stocks()
         total_stocks = len(stocks)
+        self.last_screened_count = total_stocks  # for API to report how many were screened
 
         print(f"\n🔍 Screening {total_stocks} PSX stocks for liquidity...")
         print(f"📊 Period: {self.lookback_days} days")

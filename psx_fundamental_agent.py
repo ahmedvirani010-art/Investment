@@ -261,8 +261,12 @@ class PSXFundamentalAgent:
 
         if cached_data:
             metrics = cached_data
-            data_age_hours = (datetime.now() - metrics.get('_cached_at', datetime.now())).total_seconds() / 3600
-            confidence = Confidence.HIGH if data_age_hours < 24 else Confidence.MEDIUM
+            cached_at = metrics.get("_cached_at")
+            if isinstance(cached_at, datetime):
+                data_age_hours = (datetime.now() - cached_at).total_seconds() / 3600
+                confidence = Confidence.HIGH if data_age_hours < 24 else Confidence.MEDIUM
+            else:
+                confidence = Confidence.MEDIUM
         else:
             # Fetch fresh data
             metrics = self._fetch_fundamentals(symbol)
@@ -467,13 +471,13 @@ class PSXFundamentalAgent:
             "momentum": 0.10
         }
 
-        composite = (
-            valuation_score * weights["valuation"] +
-            health_score * weights["health"] +
-            growth_score * weights["growth"] +
-            momentum_score * weights["momentum"]
-        )
-
+        v = float(valuation_score) if valuation_score is not None else 50.0
+        h = float(health_score) if health_score is not None else 50.0
+        g = float(growth_score) if growth_score is not None else 50.0
+        m = float(momentum_score) if momentum_score is not None else 50.0
+        composite = v * weights["valuation"] + h * weights["health"] + g * weights["growth"] + m * weights["momentum"]
+        if np.isnan(composite):
+            composite = 50.0
         return composite
 
     def _score_valuation(self, metrics: Dict) -> float:
@@ -635,7 +639,7 @@ class PSXFundamentalAgent:
             scores.append(revision_score)
 
         # Upcoming Catalysts
-        catalysts = metrics.get('upcoming_catalysts', [])
+        catalysts = metrics.get('upcoming_catalysts') or []
         catalyst_score = min(100, len(catalysts) * 20)  # Max 5 catalysts
         if catalyst_score > 0:
             scores.append(catalyst_score)
@@ -659,9 +663,10 @@ class PSXFundamentalAgent:
         flags = []
 
         # Debt Spike
-        debt_to_equity = metrics.get('debt_to_equity', 0)
-        debt_growth = metrics.get('debt_growth_yoy', 0)
-        if debt_to_equity > 1.5 and debt_growth > 50:
+        debt_to_equity = metrics.get('debt_to_equity')
+        debt_growth = metrics.get('debt_growth_yoy')
+        if (debt_to_equity is not None and debt_growth is not None
+                and debt_to_equity > 1.5 and debt_growth > 50):
             flags.append(RedFlag(
                 flag="debt_spike",
                 severity=self.RED_FLAGS["debt_spike"]["severity"],
@@ -670,9 +675,9 @@ class PSXFundamentalAgent:
             ))
 
         # Declining Margins
-        margin_change = metrics.get('margin_change_pct', 0)
-        quarters_declining = metrics.get('quarters_margin_declining', 0)
-        if margin_change < -5 and quarters_declining >= 2:
+        margin_change = metrics.get('margin_change_pct')
+        quarters_declining = metrics.get('quarters_margin_declining') or 0
+        if (margin_change is not None and margin_change < -5 and quarters_declining >= 2):
             flags.append(RedFlag(
                 flag="declining_margins",
                 severity=self.RED_FLAGS["declining_margins"]["severity"],
@@ -681,9 +686,9 @@ class PSXFundamentalAgent:
             ))
 
         # Negative Cash Flow
-        ocf = metrics.get('operating_cash_flow', 0)
-        quarters_negative = metrics.get('quarters_negative_ocf', 0)
-        if ocf < 0 and quarters_negative >= 2:
+        ocf = metrics.get('operating_cash_flow')
+        quarters_negative = metrics.get('quarters_negative_ocf') or 0
+        if (ocf is not None and ocf < 0 and quarters_negative >= 2):
             flags.append(RedFlag(
                 flag="negative_cash_flow",
                 severity=self.RED_FLAGS["negative_cash_flow"]["severity"],
@@ -692,8 +697,8 @@ class PSXFundamentalAgent:
             ))
 
         # Revenue Decline
-        revenue_growth = metrics.get('revenue_growth_yoy', 0)
-        if revenue_growth < -10:
+        revenue_growth = metrics.get('revenue_growth_yoy')
+        if revenue_growth is not None and revenue_growth < -10:
             flags.append(RedFlag(
                 flag="revenue_decline",
                 severity=self.RED_FLAGS["revenue_decline"]["severity"],
@@ -702,8 +707,8 @@ class PSXFundamentalAgent:
             ))
 
         # Low Liquidity
-        current_ratio = metrics.get('current_ratio', 2.0)
-        if current_ratio < 1.0:
+        current_ratio = metrics.get('current_ratio')
+        if current_ratio is not None and current_ratio < 1.0:
             flags.append(RedFlag(
                 flag="low_liquidity",
                 severity=self.RED_FLAGS["low_liquidity"]["severity"],
@@ -712,8 +717,8 @@ class PSXFundamentalAgent:
             ))
 
         # Negative Equity
-        equity = metrics.get('total_equity', 1)
-        if equity < 0:
+        equity = metrics.get('total_equity')
+        if equity is not None and equity < 0:
             flags.append(RedFlag(
                 flag="negative_equity",
                 severity=self.RED_FLAGS["negative_equity"]["severity"],
@@ -962,11 +967,11 @@ class PSXFundamentalAgent:
         catalysts = []
 
         # Earnings surprise
-        if metrics.get('earnings_surprise_pct', 0) > 10:
+        if (metrics.get('earnings_surprise_pct') or 0) > 10:
             catalysts.append("Recent earnings beat")
 
         # Strong growth
-        if metrics.get('revenue_growth_yoy', 0) > 20:
+        if (metrics.get('revenue_growth_yoy') or 0) > 20:
             catalysts.append("Strong revenue growth")
 
         # Improving margins
@@ -974,7 +979,7 @@ class PSXFundamentalAgent:
             catalysts.append("Expanding profit margins")
 
         # Add any upcoming catalysts from data
-        catalysts.extend(metrics.get('upcoming_catalysts', []))
+        catalysts.extend(metrics.get('upcoming_catalysts') or [])
 
         return catalysts
 
@@ -1044,8 +1049,8 @@ class PSXFundamentalAgent:
             quality -= (missing / len(required_fields)) * 0.3
 
         # Check recency
-        cached_at = metrics.get('_cached_at')
-        if cached_at:
+        cached_at = metrics.get("_cached_at")
+        if isinstance(cached_at, datetime):
             age_hours = (datetime.now() - cached_at).total_seconds() / 3600
             if age_hours > 48:
                 quality -= 0.2
@@ -1070,10 +1075,13 @@ class PSXFundamentalAgent:
             if flag.severity == RedFlagSeverity.CRITICAL:
                 return Recommendation.SELL
 
-        # Score-based recommendation
-        if score >= 70:
+        # Score-based recommendation (guard against None/NaN)
+        s = float(score) if score is not None else 50.0
+        if np.isnan(s):
+            s = 50.0
+        if s >= 70:
             return Recommendation.BUY
-        elif score >= 50:
+        elif s >= 50:
             return Recommendation.HOLD
         else:
             return Recommendation.SELL

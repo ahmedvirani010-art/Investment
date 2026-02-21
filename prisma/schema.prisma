@@ -7,22 +7,32 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Sector {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  code         String?  // optional short code e.g. "BANKS"
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model Stock {
   id        String   @id @default(cuid())
   ticker    String   @unique
   name      String
-  sector    String
+  sector    String   // sector name (matches Sector.name)
   marketCap String?
   lastPrice Float?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  transactions  Transaction[]
-  userStocks    UserStock[]
-  researchNotes ResearchNote[]
-  stockTags     StockTag[]
-  tradePlans    TradePlan[]
+  transactions   Transaction[]
+  userStocks     UserStock[]
+  researchNotes  ResearchNote[]
+  stockTags      StockTag[]
+  tradePlans     TradePlan[]
+  watchlistItems WatchlistItem[]
 }
 
 model Transaction {
@@ -230,6 +240,29 @@ model AccountSnapshot {
   createdAt     DateTime @default(now())
 
   @@index([date])
+}
+
+model CashFlow {
+  id        String   @id @default(cuid())
+  date      DateTime
+  amount    Float    // positive = deposit, negative = withdrawal
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([date])
+}
+
+model WatchlistItem {
+  id          String   @id @default(cuid())
+  stockId     String
+  notes       String?
+  targetPrice Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  stock Stock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@unique([stockId])
 }
 
 model LlmSettings {
